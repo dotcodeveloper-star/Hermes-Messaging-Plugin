@@ -3,6 +3,12 @@
 model:
   default: gpt-6-sol
   provider: openai-codex
+# Children spawned with delegate_task run on this model instead of inheriting the
+# session's. The session keeps its own model and prompt cache; heavy sub-work goes
+# to a fresh child on the strongest model available to this profile.
+delegation:
+  model: gpt-6-sol-pro
+  provider: openai-codex
 # The installer resolves this placeholder to each profile's own absolute root,
 # alongside SOUL.md, PROJECT.yaml and memories/ (not its workspace/ subdirectory).
 terminal:

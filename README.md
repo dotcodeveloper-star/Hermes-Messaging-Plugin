@@ -601,6 +601,62 @@ to-dos for one comment. If delivery fails or the process exits during dispatch, 
 command is **not** automatically executed again. Check `/status` before resending
 a session command; answer the current prompt when resending an approval.
 
+## Model balancer
+
+Cards can run on different models by task complexity without changing the profile
+default. A small judge model classifies each card once, at assignment, into a tier
+you define; the tier pins the card session's model and its reasoning effort. Long
+follow-up comments are judged again, but only the reasoning effort changes: a model
+switch mid-card would discard the provider prompt cache for the whole conversation,
+so the card keeps its model until the next assignment. Heavy sub-work is meant to go
+to a `delegate_task` child on the strong model pinned under `delegation` in the
+project-egg starter, which starts with a small fresh context.
+
+Configure it in the default profile's `config.yaml` next to the other GitLab settings:
+
+```yaml
+platforms:
+  gitlab:
+    extra:
+      model_balancer:
+        default_tier: standard
+        judge_timeout: 30
+        follow_up_min_chars: 240
+        tiers:
+          trivial:
+            description: typo, config value, one-line fix, or a question with an obvious answer
+            reasoning: low
+          standard:
+            description: ordinary feature or bug fix in one area of one repository
+            reasoning: medium
+          complex:
+            description: design decision, multi-file refactor, cross-repository change, or unclear bug
+            model: gpt-6-sol-pro
+            provider: openai-codex
+            reasoning: high
+auxiliary:
+  hermes_gitlab_complexity:
+    provider: openai-codex
+    model: gpt-6-luna
+```
+
+Tier names are short lowercase identifiers listed in ascending complexity; the judge
+sees each `description`. A tier without `model` keeps the profile default model, and
+`provider` requires `model`. `reasoning` is a Hermes effort level (`none`, `minimal`,
+`low`, `medium`, `high`, `xhigh`, `max`, `ultra`) or omitted to keep the default.
+`default_tier` is used when the judge returns an unusable verdict. Follow-ups shorter
+than `follow_up_min_chars` without a code block are not judged. The judge runs as
+the plugin's auxiliary task `hermes_gitlab_complexity`; pick its model under
+`auxiliary`, or leave it to follow the main model. Models named in tiers must be
+reachable with the project profile's provider credentials.
+
+A human `/model` or `/reasoning` comment on the card wins: the balancer only
+replaces a choice it made itself. After `/new` or `/model --global` clears the card's
+override, the next assignment picks again. If the judge fails or times out, the card
+keeps its current model and the request is still dispatched. Disable
+the balancer with `enabled: false` or by removing the section, then restart the
+messaging gateway.
+
 ## Polling and reliability
 
 The default gateway reads the bot's global pending **and done** GitLab to-dos,

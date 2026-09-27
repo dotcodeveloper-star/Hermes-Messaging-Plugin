@@ -1376,6 +1376,132 @@ class GitLabFlow(unittest.IsolatedAsyncioTestCase):
         await self.adapter._poll_once()
         self.assertEqual(len(self.events), 1)
 
+    def balancer(self, verdict="complex"):
+        self.adapter.balancer = self.module.balancer_config({
+            "tiers": {"trivial": {"reasoning": "low", "description": "typo or one-line fix"},
+                      "standard": {"reasoning": "medium"},
+                      "complex": {"model": "gpt-6-sol-pro", "provider": "openai-codex",
+                                  "reasoning": "high", "description": "design or multi-file change"}},
+            "default_tier": "standard"})
+        judge = AsyncMock(return_value=SimpleNamespace(parsed={"tier": verdict}))
+        self.module.PLUGIN_LLM = SimpleNamespace(acomplete_structured=judge)
+        self.addCleanup(setattr, self.module, "PLUGIN_LLM", None)
+        reasoning, states = [], {}
+        self.adapter.gateway_runner = SimpleNamespace(
+            _startup_restore_in_progress=False, _profile_name_for_source=lambda *args, **kwargs: None,
+            _set_session_reasoning_override=lambda key, value: reasoning.append((key, value)),
+            _peek_session_state=states.get)
+        return judge, reasoning, states
+
+    async def test_model_balancer_judges_assignment_and_pins_the_card_model(self):
+        store = self.session_store()
+        self.assertIsNone(self.adapter.balancer)
+        judge, reasoning, states = self.balancer("complex")
+        self.todos = [self.todo(action_name="assigned", body="")]
+        await self.adapter._poll_once()
+        self.assertEqual(len(self.events), 1)
+        key = self.adapter._event_session_key(self.events[0])
+        self.assertEqual(store.get_model_override(key), {"model": "gpt-6-sol-pro", "provider": "openai-codex"})
+        self.assertEqual(reasoning, [(key, {"enabled": True, "effort": "high"})])
+        kwargs = judge.await_args.kwargs
+        self.assertEqual(kwargs["task"], "hermes_gitlab_complexity")
+        self.assertEqual(kwargs["json_schema"]["properties"]["tier"]["enum"], ["trivial", "standard", "complex"])
+        self.assertIn("typo or one-line fix", kwargs["instructions"])
+        self.assertTrue(kwargs["input"][0]["text"].startswith("Title: "))
+        self.assertEqual(self.row()[0], 1)
+        # A long follow-up is judged again, but only its reasoning effort changes.
+        states[key] = SimpleNamespace(conversation=SimpleNamespace(
+            reasoning_override=reasoning[-1][1], model_override=dict(store.get_model_override(key))))
+        judge.return_value = SimpleNamespace(parsed={"tier": "trivial"})
+        self.todos = [self.todo(102, body="@hermes-bot " + "tolong cek stack trace ini " * 12)]
+        await self.adapter._poll_once()
+        self.assertEqual(judge.await_count, 2)
+        self.assertIn("latest request", judge.await_args.kwargs["instructions"])
+        self.assertEqual(store.get_model_override(key), {"model": "gpt-6-sol-pro", "provider": "openai-codex"})
+        self.assertEqual(states[key].conversation.model_override, {"model": "gpt-6-sol-pro", "provider": "openai-codex"})
+        self.assertEqual(reasoning[-1], (key, {"enabled": True, "effort": "low"}))
+        # A short follow-up keeps the current effort without a judge call.
+        self.todos = [self.todo(103, body="@hermes-bot ok, lanjut")]
+        await self.adapter._poll_once()
+        self.assertEqual(judge.await_count, 2)
+        self.assertEqual(len(reasoning), 2)
+        # A later assignment re-judges the model once and forces the gateway to rehydrate it.
+        states[key].conversation.reasoning_override = reasoning[-1][1]
+        judge.return_value = SimpleNamespace(parsed={"tier": "standard"})
+        self.todos = [self.todo(104, action_name="assigned", body="")]
+        await self.adapter._poll_once()
+        self.assertIsNone(store.get_model_override(key))
+        self.assertIsNone(states[key].conversation.model_override)
+        self.assertEqual(reasoning[-1], (key, {"enabled": True, "effort": "medium"}))
+        self.assertEqual(len(self.events), 4)
+        # A cleared override (/new) is not a human choice: the next assignment pins again.
+        judge.return_value = SimpleNamespace(parsed={"tier": "complex"})
+        self.todos = [self.todo(105, action_name="assigned", body="")]
+        await self.adapter._poll_once()
+        self.assertEqual(store.get_model_override(key), {"model": "gpt-6-sol-pro", "provider": "openai-codex"})
+        store.set_model_override(key, None)
+        states[key].conversation.reasoning_override = None
+        self.todos = [self.todo(106, action_name="assigned", body="")]
+        await self.adapter._poll_once()
+        self.assertEqual(store.get_model_override(key), {"model": "gpt-6-sol-pro", "provider": "openai-codex"})
+        self.assertEqual(len(self.events), 6)
+
+    async def test_model_balancer_leaves_human_model_and_reasoning_choices_alone(self):
+        store = self.session_store()
+        judge, reasoning, states = self.balancer("complex")
+        source = self.adapter._card_source("42:issues:3", {"id": 7, "username": "alice"})
+        store.get_or_create_session(source)
+        key = self.adapter._source_session_key(source)
+        store.set_model_override(key, {"model": "human-pick", "provider": "openai-codex"})
+        states[key] = SimpleNamespace(conversation=SimpleNamespace(
+            reasoning_override={"enabled": True, "effort": "low"}, model_override=None))
+        self.todos = [self.todo(action_name="assigned", body="")]
+        await self.adapter._poll_once()
+        self.assertEqual(len(self.events), 1)
+        self.assertEqual(judge.await_count, 1)
+        self.assertEqual(store.get_model_override(key), {"model": "human-pick", "provider": "openai-codex"})
+        self.assertEqual(reasoning, [])
+
+    async def test_model_balancer_failure_keeps_the_card_on_its_current_model(self):
+        store = self.session_store()
+        judge, reasoning, _ = self.balancer()
+        judge.side_effect = TimeoutError("judge timeout")
+        self.todos = [self.todo(action_name="assigned", body="")]
+        await self.adapter._poll_once()
+        self.assertEqual(len(self.events), 1)
+        self.assertIsNone(store.get_model_override(self.adapter._event_session_key(self.events[0])))
+        self.assertEqual(reasoning, [])
+        self.assertEqual(self.row()[0], 1)
+        # An unusable verdict falls back to default_tier.
+        judge.side_effect = None
+        judge.return_value = SimpleNamespace(parsed={"tier": "bogus"})
+        self.todos = [self.todo(102, action_name="assigned", body="")]
+        await self.adapter._poll_once()
+        self.assertEqual(reasoning, [(self.adapter._event_session_key(self.events[1]),
+                                      {"enabled": True, "effort": "medium"})])
+        # Without the host LLM facade the balancer stays inert.
+        self.module.PLUGIN_LLM = None
+        self.todos = [self.todo(103, action_name="assigned", body="")]
+        await self.adapter._poll_once()
+        self.assertEqual(len(self.events), 3)
+        self.assertEqual(judge.await_count, 2)
+
+    def test_model_balancer_config_validation(self):
+        config = self.module.balancer_config
+        self.assertIsNone(config(None))
+        self.assertIsNone(config({"enabled": False, "tiers": {"a": {}}}))
+        good = config({"tiers": {"fast": {"reasoning": "LOW"}, "deep": {"model": " m ", "provider": "p"}},
+                       "default_tier": "fast", "judge_timeout": 5, "follow_up_min_chars": 0})
+        self.assertEqual(good, {"tiers": {"fast": {"reasoning": "low"}, "deep": {"model": "m", "provider": "p"}},
+                                "default_tier": "fast", "judge_timeout": 5.0, "follow_up_min_chars": 0})
+        self.assertIsNone(config({"tiers": {"a": None}})["default_tier"])
+        for bad in ("x", {"tiers": {}}, {"tiers": {"Bad Name": {}}}, {"tiers": {"a": "fast"}},
+                    {"tiers": {"a": {"reasoning": "huge"}}}, {"tiers": {"a": {"model": ""}}},
+                    {"tiers": {"a": {"provider": "p"}}}, {"tiers": {"a": {}}, "default_tier": "b"},
+                    {"tiers": {"a": {}}, "judge_timeout": 0}, {"tiers": {"a": {}}, "follow_up_min_chars": -1}):
+            with self.assertRaises(ValueError):
+                config(bad)
+
 
 if __name__ == "__main__":
     unittest.main()
