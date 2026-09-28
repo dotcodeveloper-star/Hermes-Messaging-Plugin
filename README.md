@@ -403,7 +403,11 @@ assigned to this profile's Codev bot; an MR must resolve to that issue. Question
 investigation and read-only reviews need no assignment. Issue-only requests do not
 assign the bot; after creating a card the Mattermost session asks once whether to
 start, and a yes from an authorized user self-assigns the bot, which dispatches the
-issue session. An authorized assignment returns the issue link and leaves
+issue session. When the card records the Mattermost thread permalink (Planning writes
+it), the assignment dispatch verifies that permalink on the configured Mattermost
+server, hands the issue session a `Mattermost origin` link, posts the origin note in
+the issue, and relays the session's final reply (question, blocker or result) to that
+thread. An authorized assignment returns the issue link and leaves
 implementation with the GitLab worker, avoiding
 duplicate work from Desktop/TUI/CLI.
 

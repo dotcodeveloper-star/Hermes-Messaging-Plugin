@@ -87,7 +87,9 @@ Contoh:
 
 > Buat issue-nya dan langsung assign ke kamu.
 
-Codev mengonfirmasi repo dan judul (jika issue baru), menambahkan bot sebagai assignee, lalu membalas dengan link issue yang sudah dicek. Sesi Mattermost selesai di link itu; implementasi berjalan di sesi GitLab.
+Codev mengonfirmasi repo dan judul (jika issue baru), menambahkan bot sebagai assignee, lalu membalas dengan link issue yang sudah dicek. Implementasi berjalan di sesi GitLab. Instruksi lanjutan tetap bisa lewat thread Mattermost yang sama: mention Codev di thread itu, dan Codev sendiri yang meneruskannya ke sesi issue.
+
+Sesi GitLab itu tetap tahu asalnya: permalink thread Mattermost yang dicatat Codev di kartu dipakai gateway sebagai referensi asal, dan pertanyaan, blocker, atau hasil akhir dari sesi itu dikirim balik ke thread tersebut dengan link kartu dan thread. Kartu tanpa permalink hanya dilaporkan di GitLab.
 
 Pindah kolom board (To Do → Doing, dan seterusnya) tidak memulai kerja Codev. Yang memicu sesi adalah assignment ke bot.
 
@@ -134,7 +136,7 @@ Balasan GitLab dalam Bahasa Indonesia. Narasi progres disimpan internal, termasu
 di Desktop. Pesan yang terlihat hanya satu preamble, hasil akhir, atau blocker
 yang membutuhkan input pengguna; heartbeat “Working” dinonaktifkan.
 
-Kalau Codev butuh input lagi di issue yang sama, mention bot di komentar baru. Assign ulang ke bot yang sudah menjadi assignee belum tentu memicu kerja baru.
+Kalau Codev butuh input lagi di issue yang sama, jawab di thread Mattermost asal dengan mention Codev (Codev meneruskannya ke sesi issue, kamu tidak perlu membuka GitLab) atau mention bot di komentar issue. Assign ulang ke bot yang sudah menjadi assignee belum tentu memicu kerja baru.
 
 ## Boleh dan tidak boleh
 

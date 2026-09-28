@@ -19,7 +19,7 @@ Pastikan target kanonis tetap di workspace profil dan belum dipakai worktree lai
 
 **InspectingRepository** — Sesi ini tidak punya memori percakapan Mattermost; konteks diambil dari artefak, urutannya:
 1. Deskripsi dan komentar issue: tujuan, keputusan, alternatif yang ditolak, AC.
-2. Permalink thread yang ditautkan di issue: buka lewat API Mattermost (baca saja), ambil detail yang belum tertulis di card.
+2. Thread Mattermost asal: baris `Mattermost origin:` di pesan dispatch (gateway mengambilnya dari permalink di card) atau permalink yang ditautkan di issue. Buka lewat API Mattermost (baca saja), ambil detail yang belum tertulis di card. Kalau dispatch memuat `Mattermost origin`, balasan final sesi ini (pertanyaan, blocker, hasil) diteruskan gateway ke thread itu; jangan `post` ulang isi yang sama ke sana.
 3. Memory: `semantic/repositories/<gitlab-id>.md` (konvensi, command), `semantic/decisions/` (keputusan lintas issue), `semantic/workflows/` (cara setup/test). Cek `verified_at` dan `status` sebelum mengandalkannya.
 4. Kode dan history GitLab yang relevan saja.
 Kalau card tidak punya konteks maupun permalink dan scope ambigu → NeedsContext, ditanyakan di issue GitLab, bukan di Mattermost. Detail yang ditemukan dari thread dan penting untuk MR dicatat ke issue supaya reviewer tidak perlu membuka Mattermost.

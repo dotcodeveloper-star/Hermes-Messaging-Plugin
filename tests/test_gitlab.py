@@ -44,6 +44,7 @@ class GitLabFlow(unittest.IsolatedAsyncioTestCase):
         self.closing_issues, self.related_issues = [], []
         self.fail_context = self.fail_send = self.fail_list = False
         self.issue_assigned = True
+        self.issue_description = "Login fails"
         self.fail_list_page = None
         self.sort_todos = True
         self.page_size = 100
@@ -138,7 +139,7 @@ class GitLabFlow(unittest.IsolatedAsyncioTestCase):
                     {"id": 6, "body": "system context", "system": True,
                      "author": {"username": "alice"}},
                 ])
-            return web.json_response({"title": "Fix login", "description": "Login fails",
+            return web.json_response({"title": "Fix login", "description": self.issue_description,
                                       "assignees": [{"id": 99}] if self.issue_assigned else [],
                                       "web_url": str(self.api.make_url("/group/repo/-/issues/3"))})
 
@@ -867,6 +868,105 @@ class GitLabFlow(unittest.IsolatedAsyncioTestCase):
         self.assertIn("assigned", self.events[0].text)
         self.assertEqual(self.events[0].user_id, "99")
         self.assertEqual(self.events[0].source.chat_id, "42:issues:3")
+
+    async def mattermost_server(self, mm_posts, *, thread_root="b" * 26, channel="a" * 26):
+        async def mattermost_post(request):
+            self.assertEqual(request.headers.get("Authorization"), "Bearer mm-pat")
+            mm_posts.append(await request.json())
+            return web.json_response({"id": "e" * 26}, status=201)
+
+        async def mattermost_get(request):
+            post_id = request.match_info["post_id"]
+            if post_id == "c" * 26:  # A reply inside the thread resolves to its root.
+                return web.json_response({"id": post_id, "channel_id": channel, "root_id": thread_root,
+                                          "user_id": "f" * 26})
+            if post_id != thread_root:
+                return web.json_response({"error": "missing"}, status=404)
+            return web.json_response({"id": post_id, "channel_id": channel, "root_id": "",
+                                      "user_id": "d" * 26})
+
+        app = web.Application()
+        app.router.add_post("/api/v4/posts", mattermost_post)
+        app.router.add_get("/api/v4/posts/{post_id}", mattermost_get)
+        mm = TestServer(app)
+        self.addAsyncCleanup(mm.close)
+        await mm.start_server()
+        return mm
+
+    async def test_assignment_of_a_card_planned_in_mattermost_links_and_reports_to_its_thread(self):
+        mm_posts = []
+        mm = await self.mattermost_server(mm_posts)
+        reply_link = str(mm.make_url("/pl/" + "c" * 26))
+        self.issue_description = ("## Plan\n1. Fix the token check.\n\n"
+                                  f"Konteks: brainstorming di {reply_link}, PIC @alice.")
+        bot = {"id": 99, "username": "hermes-bot"}
+        self.todos = [self.todo(action_name="assigned", author=bot, body="Fix login")]
+        results = []
+
+        async def capture(event):
+            self.events.append(event)
+            result = await self.adapter.send("42:issues:3", "Blocker: butuh akses staging dari @alice.",
+                                             reply_to=event.message_id,
+                                             metadata={"notify": True, "hermes_profile": "default"})
+            results.append(result.success)
+            event._heartbeat_execution_started = True
+            event._gateway_accepted = True
+            await self.adapter.on_processing_complete(event, ProcessingOutcome.SUCCESS)
+
+        self.adapter.handle_message = capture
+        with patch.dict(os.environ, {"MATTERMOST_URL": str(mm.make_url("/")), "MATTERMOST_TOKEN": "mm-pat"}):
+            await self.adapter._poll_once()
+            await self.adapter._poll_once()
+        self.assertEqual(len(self.events), 1)
+        event = self.events[0]
+        origin = str(mm.make_url("/_redirect/pl/" + "b" * 26))
+        self.assertTrue(event.message_id.startswith("handoff:"))
+        self.assertIn("This issue was assigned to you", event.text)
+        self.assertIn("Mattermost origin: " + origin, event.text)
+        self.assertIn("relays that reply to the recorded Mattermost origin thread", event.text)
+        self.assertEqual(results, [True])
+        self.assertEqual(len([post for path, post in self.posts
+                              if path == "/api/v4/projects/42/issues/3/notes"
+                              and post.get("body", "").startswith("Konteks awal Mattermost: [RM1](" + origin)]), 1)
+        self.assertEqual(len(mm_posts), 1)
+        self.assertEqual((mm_posts[0]["channel_id"], mm_posts[0]["root_id"]), ("a" * 26, "b" * 26))
+        self.assertIn("Blocker: butuh akses staging", mm_posts[0]["message"])
+        self.assertIn("[RM1](" + origin, mm_posts[0]["message"])
+        self.assertIn("[RG](", mm_posts[0]["message"])
+        self.assertEqual(self.row()[0], 1)
+        row = self.adapter._db.execute("SELECT payload, completed, mattermost_post_id FROM handoffs WHERE id = ?",
+                                       (event.message_id,)).fetchone()
+        self.assertEqual((row[1], row[2]), (1, "e" * 26))
+        self.assertEqual(self.adapter._inflight, {})
+
+    async def test_assignment_without_mattermost_or_with_a_foreign_permalink_stays_plain(self):
+        mm_posts = []
+        mm = await self.mattermost_server(mm_posts)
+        bot = {"id": 99, "username": "hermes-bot"}
+        self.issue_description = "Konteks: " + str(mm.make_url("/pl/" + "b" * 26))
+        self.todos = [self.todo(action_name="assigned", author=bot, body="Fix login")]
+        await self.adapter._poll_once()  # Mattermost is not configured for this gateway.
+        self.issue_description = "Konteks: https://other.example/pl/" + "b" * 26
+        self.todos = [self.todo(102, action_name="assigned", author=bot, body="Fix login")]
+        with patch.dict(os.environ, {"MATTERMOST_URL": str(mm.make_url("/")), "MATTERMOST_TOKEN": "mm-pat"}):
+            await self.adapter._poll_once()
+        self.assertEqual([event.message_id for event in self.events], ["todo:101", "todo:102"])
+        self.assertTrue(all("Mattermost origin" not in event.text for event in self.events))
+        self.assertEqual(mm_posts, [])
+        self.assertEqual(self.adapter._db.execute("SELECT COUNT(*) FROM handoffs").fetchone(), (0,))
+        self.assertEqual([self.row(101)[0], self.row(102)[0]], [1, 1])
+
+    async def test_assignment_with_an_unreachable_mattermost_origin_falls_back_to_the_card(self):
+        mm_posts = []
+        mm = await self.mattermost_server(mm_posts)
+        bot = {"id": 99, "username": "hermes-bot"}
+        self.issue_description = "Konteks: " + str(mm.make_url("/pl/" + "z" * 26))  # deleted post
+        self.todos = [self.todo(action_name="assigned", author=bot, body="Fix login")]
+        with patch.dict(os.environ, {"MATTERMOST_URL": str(mm.make_url("/")), "MATTERMOST_TOKEN": "mm-pat"}):
+            await self.adapter._poll_once()
+        self.assertEqual([event.message_id for event in self.events], ["todo:101"])
+        self.assertNotIn("Mattermost origin", self.events[0].text)
+        self.assertEqual(self.row()[0], 1)
 
     async def test_unauthorized_own_and_unmentioned_events_are_ignored(self):
         self.todos = [self.todo(i, **change) for i, change in enumerate((

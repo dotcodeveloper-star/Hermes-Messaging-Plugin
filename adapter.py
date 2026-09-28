@@ -451,9 +451,16 @@ class GitLabAdapter(BasePlatformAdapter):
         item, notes = await asyncio.gather(
             self._api("GET", route),
             self._api("GET", route + "/notes", params={"sort": "desc", "order_by": "created_at", "per_page": 20}))
+        card_handoff = None
         if handoff:
             if str(self.bot_id) not in {str(row.get("id")) for row in item.get("assignees") or []}:
                 raise ValueError("GitLab issue is no longer assigned to the bot")
+        elif resource == "issues" and todo.get("action_name") == "assigned":
+            card_handoff = await self._card_handoff(todo_id, chat_id, source, item, notes, body)
+            if card_handoff:
+                identity, request = card_handoff
+                event.message_id = identity
+        if handoff or card_handoff:
             origin_key = f"origin_note:{request['issue']}"
             if not self._db.execute("SELECT 1 FROM meta WHERE key = ?", (origin_key,)).fetchone():
                 note = await self._api("POST", route + "/notes", json={
@@ -490,6 +497,12 @@ class GitLabAdapter(BasePlatformAdapter):
                            "Verify current issue assignment and live MR, CI, review, commit and discussion progress. "
                            "Continue this issue's existing session; report the final outcome or blocker here "
                            "and to the recorded Mattermost origin thread. Use [RM1] and [RG] source links.")
+        elif card_handoff:
+            event.text += ("\nMattermost origin: " + request["origin_url"] + "\n"
+                           "This card was requested and planned in that Mattermost thread; read it for context "
+                           "the card lacks. Report questions, blockers and the final outcome in your final reply "
+                           "here; the gateway relays that reply to the recorded Mattermost origin thread. "
+                           "Use [RM1] and [RG] source links.")
         if not await self._continue_card_session(source, chat_id):
             return
         # A resumed native turn can claim the session during the context requests above.
@@ -504,9 +517,71 @@ class GitLabAdapter(BasePlatformAdapter):
             for key in (f"delivery:{identity}", f"delivery:last:{source.profile or 'default'}:{source.chat_id}"):
                 self._db.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", (key, delivery))
         self._inflight[identity] = session_key
-        await self.handle_message(event)
-        if not event._gateway_accepted:
-            raise ValueError("Gateway did not accept event")
+        try:
+            await self.handle_message(event)
+            if not event._gateway_accepted:
+                raise ValueError("Gateway did not accept event")
+        except BaseException:
+            # A converted card handoff carries an identity the inbox loop cannot release.
+            self._inflight.pop(identity, None)
+            raise
+
+    async def _card_handoff(self, todo_id, chat_id, source, item, notes, body):
+        """Turn an issue assignment into a Mattermost handoff when the card records its origin thread.
+
+        Planning writes the brainstorming thread permalink into the card. Resolving it here
+        gives the issue session the same origin link, GitLab note and final report relay
+        that a queued `gitlab continue` handoff gets, so questions and blockers reach the
+        thread the request came from. Returns (identity, payload) or None.
+        """
+        access = _mattermost_access()
+        try:
+            base_url, api = access.api_client(home=get_default_hermes_root())
+        except ValueError:
+            return None  # Mattermost is not configured on the default profile.
+        texts = [str(item.get("description") or "")]
+        texts += [str(note.get("body") or "") for note in notes if not note.get("system")]
+        post_id = None
+        for text in texts:
+            for link in re.findall(r"(?:https?|mattermost)://[^\s<>()\[\]]+", text):
+                try:
+                    post_id = access.resolve_post_id(link.rstrip(".,;:'\""), base_url)
+                    break
+                except ValueError:
+                    continue
+            if post_id:
+                break
+        if not post_id:
+            return None
+        try:
+            post = await asyncio.to_thread(api, "GET", f"posts/{post_id}")
+            root = access.require_id(str(post.get("root_id") or post.get("id") or ""), "root post")
+            channel = access.require_id(str(post.get("channel_id") or ""), "channel")
+            if root != post_id:
+                post = await asyncio.to_thread(api, "GET", f"posts/{root}")
+            origin_user = access.require_id(str(post.get("user_id") or ""), "user")
+        except (ValueError, TypeError, AttributeError) as error:
+            if "Mattermost request failed" in str(error):
+                raise  # Transient network failure: keep the assignment queued and retry.
+            log.warning("Mattermost origin recorded in the GitLab card could not be verified; "
+                        "dispatching without it")
+            return None
+        issue_url = str(item.get("web_url") or "")
+        if not issue_url.startswith(self.url + "/"):
+            return None
+        payload = {"issue": chat_id, "profile": source.profile or "default",
+                   "origin_channel": channel, "origin_root": root, "origin_post": root,
+                   "origin_user": origin_user, "origin_url": access.post_permalink(base_url, root),
+                   "issue_url": issue_url, "todo": str(todo_id),
+                   "request": (body or str(item.get("title") or ""))[:4000]}
+        identity = "handoff:" + hashlib.sha256(
+            f"{chat_id}\n{root}\ntodo:{todo_id}".encode()).hexdigest()[:32]
+        with self._db:
+            self._db.execute("INSERT OR IGNORE INTO handoffs (id, payload) VALUES (?, ?)",
+                             (identity, json.dumps(payload)))
+            # The handoff row now owns retries and completion for this assignment.
+            self._db.execute("UPDATE inbox SET completed = 1, last_error = NULL WHERE id = ?", (todo_id,))
+        return identity, payload
 
     def _comment_command(self, todo):
         if (todo.get("action_name") not in {"mentioned", "directly_addressed"}

@@ -30,6 +30,7 @@ State idle (AwaitingRequest, AwaitingContext, AwaitingAssignment, AwaitingReview
 - Kode hanya disentuh di Working dan AddressingFeedback, dan hanya untuk issue GitLab yang di-assign ke CoDev. Diverifikasi ulang setiap resume.
 - Read-only (pertanyaan, investigasi tanpa perbaikan, review MR orang lain) selesai di Understanding tanpa masuk Planning.
 - Blocker di state mana pun → `tools/blocked.md`. Yang bisa CoDev sediakan sendiri di mesinnya bukan blocker.
+- Dari Mattermost, apa pun yang ditujukan ke pekerjaan yang sudah punya issue ter-assign (perintah baru, jawaban atas pertanyaan atau blocker sesi issue, perubahan scope) diteruskan CoDev sendiri dengan `hermes -p default gitlab continue --issue '<project-id>:issues:<iid>'`, di state mana pun. Sesi Mattermost tidak pernah menyuruh user komentar atau mention di GitLab.
 - Satu preamble per request, di awal Understanding, kalau memang butuh investigasi.
 
 ## Skill superpowers

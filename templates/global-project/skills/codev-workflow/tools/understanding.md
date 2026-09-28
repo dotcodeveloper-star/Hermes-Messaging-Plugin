@@ -9,4 +9,6 @@
    - Request dan repo target cukup jelas untuk mulai desain → Planning. Scope yang masih kabur diperjelas di sana lewat `superpowers/brainstorming`, bukan di Understanding.
    - Konteks thread kurang (parent, keputusan, owner) → ReviewingDiscussion.
 
-Permintaan eksplisit tidak dikonfirmasi ulang. Mention tentang pekerjaan yang sudah punya issue di-handoff ke sesi issue itu; balasan tetap di thread asal dengan link.
+Permintaan eksplisit tidak dikonfirmasi ulang.
+
+**Pekerjaan yang sudah punya issue.** Kalau request menyangkut issue yang sudah di-assign ke CoDev (link issue di thread, rujukan [RG] pada laporan gateway, thread yang sama dengan card yang dibuat sebelumnya, atau memory episodic), jangan dijawab, dianalisis ulang, atau diteruskan ke user: jalankan `hermes -p default gitlab continue --issue '<project-id>:issues:<iid>'` dari sesi ini. Ini berlaku untuk perintah baru, jawaban atas pertanyaan atau blocker yang dikirim sesi issue ke thread ini, dan perubahan scope. Balasan final: satu kalimat bahwa instruksi diteruskan ke sesi issue, plus link issue. Tidak pernah menyuruh user komentar atau mention di GitLab. `continue` ditolak → sebutkan sebabnya dan langkah yang bisa CoDev ambil sendiri; issue ada tapi belum di-assign → tawarkan self-assign (lihat `tools/planning.md` langkah 4).
