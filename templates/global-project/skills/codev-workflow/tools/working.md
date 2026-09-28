@@ -2,6 +2,8 @@
 
 Prasyarat: issue GitLab benar-benar di-assign ke CoDev. Diverifikasi ulang setiap resume.
 
+**Card ke Doing.** Saat masuk Working, termasuk kembali dari AddressingFeedback, geser card ke list Doing sesuai peta `## Board` repo itu (`tools/board.md` langkah 2). Peta belum ada → refresh dulu dari board yang ada; tetap tidak ada list yang cocok → card tidak digeser.
+
 **Runbook dulu.** Sebelum menyentuh kode, baca `memories/semantic/workflows/<gitlab-id>-runbook.md` (lihat `tools/runbook.md`). Kalau ada dan current: ikuti untuk setup, seed, start, login, test. Kalau tidak ada atau gagal: discovery, dan tulis runbook sambil jalan. App harus bisa dijalankan dan diakses CoDev sendiri sebelum Implementing dimulai; perubahan tidak dianggap terverifikasi kalau hanya lolos unit test tanpa pernah dilihat jalan.
 
 **Urutan skill superpowers.** `superpowers/using-git-worktrees` → `superpowers/executing-plans` → `superpowers/test-driven-development` → `superpowers/requesting-code-review` → `superpowers/finishing-a-development-branch`. Muat masing-masing saat sub-state-nya masuk, bukan semuanya di awal.

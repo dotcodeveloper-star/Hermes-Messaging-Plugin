@@ -9,6 +9,7 @@ Masuk saat MR dibuat (dari Working) atau setelah push perbaikan (dari Addressing
 
 ## 2. Minta review di GitLab
 
+- Geser card ke list Review sesuai peta `## Board` repo (`tools/board.md` langkah 2); peta `-` → tidak digeser.
 - Set reviewer MR ke PIC lewat GitLab API kalau PIC teridentifikasi.
 - Mention PIC di **balasan final sesi ini** (issue atau MR, tempat sesi di-route), bukan lewat komentar tambahan. Isi: link MR, satu kalimat apa yang berubah, cara verifikasi singkat, coverage gap kalau ada.
 

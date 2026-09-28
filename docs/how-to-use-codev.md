@@ -101,7 +101,7 @@ Di diskusi GitLab, Codev:
 - Menyiapkan workspace terpisah untuk kartu itu
 - Memastikan tujuan dan acceptance criteria, lalu menelusuri dampak UI, API, aturan bisnis, otorisasi, dan data yang relevan
 - Mengimplementasikan, menjalankan cek yang relevan, kirim branch, dan membuka atau memperbarui merge request
-- Menggeser status kartu sesuai progres nyata (Doing → blocked/waiting → review)
+- Menggeser kartu di board project sesuai progres nyata (Doing → Blocked → Review → Testing), memakai list yang sudah ada di board itu; Codev tidak membuat label baru dan tidak memindah ke Done/Closed
 - Menutup dengan hasil, verifikasi, dan link merge request, atau pertanyaan blocker yang jelas
 
 Codev menjadi owner tugas sampai kriteria penerimaan tim terpenuhi. Keputusan teknis
@@ -146,7 +146,7 @@ Kalau Codev butuh input lagi di issue yang sama, jawab di thread Mattermost asal
 - Baca kode, specsbook, catatan project, dan daftar repository yang terhubung ke project itu
 - Brainstorm, jelaskan, dan investigasi di Mattermost
 - Buat atau pecah GitLab issue setelah konfirmasi
-- Geser status kartu sesuai progres nyata (Doing, blocked, review)
+- Geser kartu di board project sesuai progres nyata (Doing, Blocked, Review, Testing), hanya ke list yang sudah ada
 - Tanya blocker yang jelas: apa yang kurang, di mana, lanjut setelah apa
 
 ### Tidak boleh

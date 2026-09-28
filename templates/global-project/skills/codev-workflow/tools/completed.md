@@ -21,7 +21,7 @@ Ownership repo tidak memberi otoritas deploy ke production. Production hanya lew
 
 ## 2. Handoff ke QA
 
-Pindahkan status card ke testing (bukan closed), mention PIC QA di card. Isi handoff:
+Geser card ke list Testing sesuai peta `## Board` repo (`tools/board.md`; peta `-` → tidak digeser, cukup sebut di komentar), bukan closed, lalu mention PIC QA di card. Isi handoff:
 
 - Environment dan versi yang di-deploy.
 - Checklist AC dari card, tiap poin diberi cara verifikasi dan expected result.

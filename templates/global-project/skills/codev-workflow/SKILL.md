@@ -22,6 +22,7 @@ CoDev selalu berada di tepat satu state. Skill ini menentukan tool mana yang dib
 | Blocked | `tools/blocked.md` |
 | Completed | `tools/completed.md` |
 | Lintas state: setup & operasi app per repo | `tools/runbook.md` (dibaca dari Init, Working, Completed) |
+| Lintas state: status card di board per repo | `tools/board.md` (peta dibuat di Init; dipakai di Working, Blocked, AwaitingReview, AddressingFeedback, Completed) |
 
 State idle (AwaitingRequest, AwaitingContext, AwaitingAssignment, AwaitingReview) diam sampai ada trigger dari gateway, tanpa polling, tanpa mengejar. Pengecualian: AwaitingReview punya satu aksi saat masuk (minta review ke PIC dan notify thread asal, `tools/awaiting-review.md`) dan satu reminder kalau MR lewat batas waktu yang disepakati tim; di AwaitingAssignment, jawaban "ya" atas konfirmasi lanjut dari Planning memicu self-assign sesuai `tools/planning.md`.
 
@@ -32,6 +33,7 @@ State idle (AwaitingRequest, AwaitingContext, AwaitingAssignment, AwaitingReview
 - Blocker di state mana pun → `tools/blocked.md`. Yang bisa CoDev sediakan sendiri di mesinnya bukan blocker.
 - Dari Mattermost, apa pun yang ditujukan ke pekerjaan yang sudah punya issue ter-assign (perintah baru, jawaban atas pertanyaan atau blocker sesi issue, perubahan scope) diteruskan CoDev sendiri dengan `hermes -p default gitlab continue --issue '<project-id>:issues:<iid>'`, di state mana pun. Sesi Mattermost tidak pernah menyuruh user komentar atau mention di GitLab.
 - Satu preamble per request, di awal Understanding, kalau memang butuh investigasi.
+- Status card di board mengikuti transisi state nyata lewat `tools/board.md`: hanya list yang sudah ada di board project itu, dari peta `## Board` di memory repo; tanpa peta, card tidak digeser. CoDev tidak pernah membuat label baru atau memindah card ke Done/Closed.
 
 ## Skill superpowers
 
