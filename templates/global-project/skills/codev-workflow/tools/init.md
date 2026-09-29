@@ -35,13 +35,14 @@ Status dilaporkan terpisah: `configured` / `connected` / `end-to-end verified`. 
 
 ## 2. Post greetings thread
 
-Satu pesan di channel yang diberikan, jadi thread induk untuk sisa onboarding dan sekaligus tes outbound (baca kembali post ID setelah kirim). Isi:
+Satu pesan di channel yang diberikan, jadi thread induk untuk sisa onboarding dan sekaligus tes outbound (baca kembali post ID setelah kirim). Pendek, maksimal tiga kalimat, nada menyapa, bukan manual:
 
-- Siapa CoDev dan apa yang dilakukan (senior lead developer; mengerjakan issue GitLab yang di-assign ke CoDev, bisa diajak brainstorming dan ditanya soal kode).
-- Cara memberi task: minta CoDev buat issue lalu jawab "ya" saat ditanya lanjut, atau assign issue GitLab ke CoDev langsung.
-- Satu permintaan: siapa PIC untuk FE, BE, QA, PM, DevOps, dan project apa saja yang jadi tanggung jawab CoDev.
+- Sapaan dan perkenalan satu kalimat: CoDev, developer baru di tim, mengerjakan issue GitLab yang di-assign ke CoDev.
+- Ajak kenalan: siapa PIC FE, BE, QA, PM, DevOps, dan project apa saja yang jadi tanggung jawab CoDev. Minta dibalas di thread ini.
 
-Semua balasan onboarding di thread ini. Tidak ada DM ke orang yang belum pernah berinteraksi.
+Contoh: "Halo semua, saya CoDev, developer baru di tim yang akan mengerjakan issue GitLab yang di-assign ke saya. Biar bisa mulai, boleh kenalan dulu: siapa PIC FE, BE, QA, PM, dan DevOps, dan project apa saja yang jadi tanggung jawab saya? Balas di thread ini ya."
+
+Cara memberi task belum dijelaskan di sini; itu disampaikan di balasan penutup langkah 4. Semua balasan onboarding di thread ini. Tidak ada DM ke orang yang belum pernah berinteraksi.
 
 ## 3. Petakan PIC
 
@@ -59,4 +60,4 @@ Untuk tiap project yang disebut:
 4. Baca board GitLab yang sudah ada untuk repo itu (`tools/board.md` langkah 1): daftar list dan labelnya, pilih board yang benar-benar dipakai tim, petakan ke state CoDev, dan tulis section `## Board` di `memories/semantic/repositories/<gitlab-id>.md`. Pencocokan yang ambigu ditanyakan sekali di thread onboarding; tidak ada board → catat "tidak ada", jangan membuat label.
 5. Catat ke memory sesuai rumahnya: peran repo, entry point, command, konvensi → `memories/semantic/repositories/<gitlab-id>.md`; cara setup/test yang sudah terbukti jalan (nama variabel dan lokasinya, tanpa nilai) → `semantic/workflows/<slug>.md`; istilah domain dan batas produk → `semantic/project.md`; dependensi antar repo → `semantic/architecture.md`. Setiap halaman baru di-index di `memories/INDEX.md`; ringkasan startup di `MEMORY.md` lewat native memory tool.
 
-Selesai saat semua project bisa dijalankan, diakses, dan di-test dari mesin CoDev, tiap repo punya runbook `status: current`, dan tiap repo punya section `## Board` (peta atau "tidak ada"). Tutup dengan satu balasan di thread: project mana yang sudah siap, mana yang masih butuh apa dari siapa. Transisi ke AwaitingRequest.
+Selesai saat semua project bisa dijalankan, diakses, dan di-test dari mesin CoDev, tiap repo punya runbook `status: current`, dan tiap repo punya section `## Board` (peta atau "tidak ada"). Tutup dengan satu balasan di thread: project mana yang sudah siap, mana yang masih butuh apa dari siapa, lalu satu kalimat cara memberi task (assign issue GitLab ke CoDev, atau minta CoDev buat issue dan jawab "ya" saat ditanya lanjut; CoDev juga bisa diajak brainstorming dan ditanya soal kode). Transisi ke AwaitingRequest.
