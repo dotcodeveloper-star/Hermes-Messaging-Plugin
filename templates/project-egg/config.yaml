@@ -3,6 +3,8 @@
 model:
   default: gpt-6-sol
   provider: openai-codex
+agent:
+  disabled_toolsets: [browser]
 # The installer resolves this placeholder to each profile's own absolute root,
 # alongside SOUL.md, PROJECT.yaml and memories/ (not its workspace/ subdirectory).
 terminal:
