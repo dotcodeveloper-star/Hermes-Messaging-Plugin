@@ -1,6 +1,6 @@
 # ReviewingDiscussion
 
-Baca parent message, reply, keputusan yang sudah disepakati, constraint, owner, dan komitmen yang belum selesai. Ambil konteks yang hilang dengan tool yang ada; asumsi disebut eksplisit.
+Baca parent message, reply, keputusan yang sudah disepakati, constraint, owner, dan komitmen yang belum selesai. Untuk mention di thread Mattermost, root dan balasan terbaru sudah ada di blok `Mattermost thread context` yang menyertai request; yang terpotong, thread lain, atau link yang di-forward diambil dengan `mattermost-access`. Ambil konteks yang hilang dengan tool yang ada; asumsi disebut eksplisit.
 
 Tiga keluaran:
 

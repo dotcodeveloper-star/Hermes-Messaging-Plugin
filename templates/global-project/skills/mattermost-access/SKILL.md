@@ -20,7 +20,7 @@ python3 "$HERMES_HOME/../global-project/skills/mattermost-access/scripts/access.
 python3 "$HERMES_HOME/../global-project/skills/mattermost-access/scripts/access.py" search --channel '<channel-id>' --terms '"exact phrase" from:alice after:2026-09-01'
 ```
 
-`thread` returns the root and replies in pages. `search` scopes results to the channel; use Mattermost's `from:`, `before:`, `after:`, `on:`, quoted phrase and exclusion filters, then open relevant results with `thread`. Page through results when needed. `recent` is for browsing without a search term. Search visibility and relevance still govern what to read.
+A mention inside a thread already arrives with that thread's root and newest earlier replies as a `Mattermost thread context` block; use `thread` for replies that block omitted, for other threads, and for forwarded links. `thread` returns the root and replies in pages. `search` scopes results to the channel; use Mattermost's `from:`, `before:`, `after:`, `on:`, quoted phrase and exclusion filters, then open relevant results with `thread`. Page through results when needed. `recent` is for browsing without a search term. Search visibility and relevance still govern what to read.
 
 For a Mattermost reference, use the `permalink` returned by `thread` or `post`, or the verified `origin_url` from a GitLab handoff. These links use the configured Mattermost server. Do not write or guess a Mattermost hostname yourself; if no verified permalink is available, cite the post ID without a link.
 

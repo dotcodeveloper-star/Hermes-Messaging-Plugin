@@ -1,4 +1,4 @@
-# Hermes GitLab messaging · 0.3.30
+# Hermes GitLab messaging · 0.3.31
 
 GitLab mentions and issue assignments reach Hermes through **outbound polling**
 with a bot account PAT. **GitLab Projects** appears below **Kanban** in Hermes
@@ -302,6 +302,16 @@ CoDev creates issue worktrees with native `git worktree add`. `close-worktree`
 checks the current request, Git registration, issue/branch identity and live runtime
 evidence before shutdown or removal. A matching issue number alone is insufficient;
 open cards retain their worktrees unless the requester explicitly overrides that rule.
+
+A mention inside a Mattermost thread reaches the session together with the thread
+it was made in: the plugin's `pre_gateway_dispatch` hook reads the thread with the
+default profile's Mattermost bot, and attaches the root post plus the newest earlier
+replies (oldest first, the bot's own posts marked, system posts and the mentioning
+post excluded, bounded to 60 replies / 30000 characters with older replies counted)
+as channel context ahead of the mention. Usernames come from the Mattermost API and
+are cached. Top-level posts, DMs without a thread, other platforms and internal events
+are untouched. When Mattermost is unconfigured or the request fails or times out, the
+mention is still dispatched without the block and a warning is logged.
 
 `mattermost-access` reads threads, follows forwarded post links, searches within a
 channel using Mattermost filters, and posts authorized replies, cross-thread notices,
