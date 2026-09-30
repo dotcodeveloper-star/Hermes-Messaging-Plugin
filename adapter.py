@@ -20,6 +20,7 @@ from gateway.config import Platform
 from gateway.platforms._shared import extra_or_secret, get_scoped_secret, seed_extra_from_env
 from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, ProcessingOutcome
+from gateway.session import SessionSource, build_session_key
 from hermes_constants import get_default_hermes_root
 
 log = logging.getLogger(__name__)
@@ -105,6 +106,28 @@ def _mattermost_access():
     return module
 
 
+_PLUGIN_CONTEXT = None  # set by register(); grants ctx.inject_message-style session turns
+MAX_RELAY_CHAIN = 3     # bot-to-bot relays in a row before a report goes to humans only
+CHAT_TYPES = {"O": "channel", "P": "group", "G": "group", "D": "dm"}
+SESSION_KEY_RE = re.compile(r"agent:[^:\s]+:mattermost:(?:channel|group|dm|thread):[a-z0-9]{26}:[a-z0-9]{26}"
+                            r"(?::[a-z0-9]{26})?")
+
+
+def origin_session_key(payload):
+    """Durable key of the Mattermost thread session a handoff came from.
+
+    `gitlab continue` records the exact key it ran under; card handoffs derive it from the
+    verified origin thread the same way the Mattermost adapter keys shared thread sessions.
+    """
+    key = str(payload.get("origin_session_key") or "")
+    if SESSION_KEY_RE.fullmatch(key):
+        return key
+    source = SessionSource(platform=Platform.MATTERMOST, chat_id=payload["origin_channel"],
+                           chat_type=payload.get("origin_chat_type") or "channel",
+                           user_id=payload["origin_user"], thread_id=payload["origin_root"])
+    return build_session_key(source, profile=payload.get("profile") or "default")
+
+
 class GitLabAdapter(BasePlatformAdapter):
     interactive_resume = False
 
@@ -170,6 +193,12 @@ class GitLabAdapter(BasePlatformAdapter):
                 id TEXT PRIMARY KEY, payload TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 0,
                 attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT,
                 gitlab_note_id TEXT, mattermost_post_id TEXT, report_body TEXT)""")
+            # Reports delivered as turns of their origin Mattermost session. The synthetic
+            # relay_post lets that turn queue a trusted `gitlab continue` without a mention.
+            self._db.execute("""CREATE TABLE IF NOT EXISTS relays (
+                id TEXT PRIMARY KEY, session_key TEXT NOT NULL, issue TEXT NOT NULL, payload TEXT NOT NULL,
+                relay_post TEXT NOT NULL, body_hash TEXT NOT NULL, chain INTEGER NOT NULL DEFAULT 0,
+                injected_at TEXT NOT NULL)""")
             # Existing pending requests are imported regardless of age. Historical done requests
             # predate this checkpoint and are ignored; retain the cutoff across restarts.
             for project in self.projects:
@@ -497,6 +526,9 @@ class GitLabAdapter(BasePlatformAdapter):
                            "Verify current issue assignment and live MR, CI, review, commit and discussion progress. "
                            "Continue this issue's existing session; report the final outcome or blocker here "
                            "and to the recorded Mattermost origin thread. Use [RM1] and [RG] source links.")
+            if request.get("relay_of"):
+                event.text += ("\nThis request was relayed by the Mattermost thread session on behalf of "
+                               "the team, not typed by a user; treat it as that thread's answer or instruction.")
         elif card_handoff:
             event.text += ("\nMattermost origin: " + request["origin_url"] + "\n"
                            "This card was requested and planned in that Mattermost thread; read it for context "
@@ -566,13 +598,18 @@ class GitLabAdapter(BasePlatformAdapter):
             log.warning("Mattermost origin recorded in the GitLab card could not be verified; "
                         "dispatching without it")
             return None
+        try:
+            room = await asyncio.to_thread(api, "GET", f"channels/{channel}")
+            chat_type = CHAT_TYPES.get(str(room.get("type") or ""), "channel")
+        except (ValueError, TypeError, AttributeError):
+            chat_type = "channel"  # The key still resolves for the common public-channel thread.
         issue_url = str(item.get("web_url") or "")
         if not issue_url.startswith(self.url + "/"):
             return None
         payload = {"issue": chat_id, "profile": source.profile or "default",
                    "origin_channel": channel, "origin_root": root, "origin_post": root,
                    "origin_user": origin_user, "origin_url": access.post_permalink(base_url, root),
-                   "issue_url": issue_url, "todo": str(todo_id),
+                   "origin_chat_type": chat_type, "issue_url": issue_url, "todo": str(todo_id),
                    "request": (body or str(item.get("title") or ""))[:4000]}
         identity = "handoff:" + hashlib.sha256(
             f"{chat_id}\n{root}\ntodo:{todo_id}".encode()).hexdigest()[:32]
@@ -822,6 +859,11 @@ class GitLabAdapter(BasePlatformAdapter):
         message = content[:3500].rstrip()
         if refs not in message:
             message += "\n\nRujukan: " + refs
+        if await self._relay_to_origin_session(identity, payload, message):
+            with self._db:
+                self._db.execute("UPDATE handoffs SET mattermost_post_id = ? WHERE id = ?",
+                                 ("session:" + origin_session_key(payload), identity))
+            return
         access = _mattermost_access()
         base_url, _ = access.api_client(home=get_default_hermes_root())
         if access.resolve_post_id(payload["origin_url"], base_url) != payload["origin_root"]:
@@ -831,6 +873,64 @@ class GitLabAdapter(BasePlatformAdapter):
         with self._db:
             self._db.execute("UPDATE handoffs SET mattermost_post_id = ? WHERE id = ?",
                              (result["post_id"], identity))
+
+    async def _relay_to_origin_session(self, identity, payload, message):
+        """Deliver a handoff report as a turn of the Mattermost thread session it came from.
+
+        That session sees the result, question or blocker inside its own context and can
+        continue work that waited for it, instead of a human re-mentioning the bot. Returns
+        False when injection is unavailable, not allowed or guarded, so the caller posts the
+        report to the thread instead.
+        """
+        ctx = _PLUGIN_CONTEXT
+        allowed = getattr(ctx, "_gateway_injection_allowed", None)
+        dispatch = getattr(self.gateway_runner, "_dispatch_plugin_message_injection", None)
+        if self._db is None or dispatch is None or not (allowed and allowed()):
+            return False
+        session_key = origin_session_key(payload)
+        body_hash = hashlib.sha256(message.encode()).hexdigest()
+        chain = int(payload.get("chain") or 0)
+        last = self._db.execute("SELECT body_hash FROM relays WHERE session_key = ? AND issue = ? "
+                                "ORDER BY injected_at DESC, rowid DESC LIMIT 1",
+                                (session_key, payload["issue"])).fetchone()
+        repeated = bool(last and last[0] == body_hash)
+        if chain >= MAX_RELAY_CHAIN or repeated:
+            log.info("GitLab report relay guarded (chain=%s, repeated=%s); posting to the thread instead",
+                     chain, repeated)
+            return False
+        relay_post = hashlib.sha256(f"relay:{identity}".encode()).hexdigest()[:26]
+        with self._db:
+            self._db.execute("INSERT OR REPLACE INTO relays VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                             (identity, session_key, payload["issue"], json.dumps(payload), relay_post,
+                              body_hash, chain, datetime.now(timezone.utc).isoformat()))
+        try:
+            routed = bool(await dispatch(session_key=session_key, content=self._relay_text(payload, message),
+                                         plugin_id=getattr(ctx, "plugin_id", None) or "hermes-gitlab"))
+        except Exception:
+            log.warning("GitLab report relay into the Mattermost session failed; posting instead")
+            routed = False
+        if not routed:
+            with self._db:
+                self._db.execute("DELETE FROM relays WHERE id = ?", (identity,))
+        return routed
+
+    @staticmethod
+    def _relay_text(payload, message):
+        project, _, iid = payload["issue"].split(":")
+        return (
+            f"Laporan otomatis dari sesi GitLab issue #{iid} (project {project}), diteruskan gateway ke "
+            "thread Mattermost ini. Ini bukan pesan user.\n\n"
+            f"{message}\n\n"
+            "Instruksi: balasan final Anda dikirim gateway ke thread ini; laporan di atas belum tampil di "
+            "thread, jadi sampaikan isinya (hasil, link MR/issue, pertanyaan atau blocker apa adanya) dalam "
+            "balasan final. Kalau ada pekerjaan di thread ini yang menunggu hasil tersebut, lanjutkan "
+            "sekarang: self-assign card yang menunggu, atau untuk issue yang sudah di-assign jalankan "
+            "`hermes -p default gitlab continue --issue '<project-id>:issues:<iid>' --request '<instruksi>'`. "
+            "Kalau laporan itu pertanyaan atau blocker yang bisa dijawab dari konteks thread ini, jawab dengan "
+            f"`hermes -p default gitlab continue --issue '{payload['issue']}' --request '<jawaban>'`; kalau "
+            "butuh keputusan manusia, sampaikan ke PIC di balasan final. Kalau konteks thread tidak ada di "
+            f"sesi ini, baca dulu dengan `mattermost-access thread --post '{payload['origin_url']}'`."
+        )
 
     async def send(self, chat_id, content, reply_to=None, metadata=None):
         match = self._card_match(chat_id)
@@ -998,6 +1098,8 @@ class GitLabAdapter(BasePlatformAdapter):
 
 
 def register(ctx):
+    global _PLUGIN_CONTEXT
+    _PLUGIN_CONTEXT = ctx
     ctx.register_platform(
         name="gitlab", label="GitLab", adapter_factory=GitLabAdapter,
         check_fn=lambda: True, required_env=[env for env, key, _ in ENV if key not in {"projects", "max_workers"}],

@@ -1,4 +1,4 @@
-# Hermes GitLab messaging · 0.3.31
+# Hermes GitLab messaging · 0.3.32
 
 GitLab mentions and issue assignments reach Hermes through **outbound polling**
 with a bot account PAT. **GitLab Projects** appears below **Kanban** in Hermes
@@ -65,8 +65,13 @@ Install from GitHub so the plugin directory is a git checkout (required for
 ```sh
 hermes -p default plugins install nemixe/Hermes-Messaging-Plugin --force --enable
 hermes -p default config set gateway.multiplex_profiles true
+hermes -p default config set plugins.entries.hermes-gitlab.allow_gateway_injection true
 hermes -p default gateway restart
 ```
+
+`allow_gateway_injection` lets a GitLab issue session's report continue the Mattermost
+thread session it came from (see **Reports continue the origin thread session**).
+Without it, reports are posted to the thread as plain messages, as in earlier releases.
 
 `plugin.yaml` is at the repository root. Do not append `/hermes-gitlab` or
 `#hermes-gitlab` — those install only a subdirectory and drop `.git`, so update
@@ -417,7 +422,7 @@ issue session. When the card records the Mattermost thread permalink (Planning w
 it), the assignment dispatch verifies that permalink on the configured Mattermost
 server, hands the issue session a `Mattermost origin` link, posts the origin note in
 the issue, and relays the session's final reply (question, blocker or result) to that
-thread. An authorized assignment returns the issue link and leaves
+thread as a turn of the thread's own session. An authorized assignment returns the issue link and leaves
 implementation with the GitLab worker, avoiding
 duplicate work from Desktop/TUI/CLI.
 
@@ -432,6 +437,33 @@ the existing worker limit, refreshes issue/MR/commit/CI/review state, and report
 result or blocker in GitLab and the original Mattermost thread. Repeated calls for
 the same mention queue one request. Mattermost activity without a mention does not
 wake GitLab work; failed Mattermost report delivery retries without rerunning work.
+An optional `--request '<text>'` adds an instruction to the forwarded mention.
+
+### Reports continue the origin thread session
+
+With `plugins.entries.hermes-gitlab.allow_gateway_injection: true` on the default
+profile, the issue session's final reply is not posted to the origin thread by the
+plugin. It is delivered as a turn of the Mattermost thread session that requested the
+work, through Hermes's plugin message injection. That session sees the result, question
+or blocker inside its own context, relays the substance in its own final reply to the
+thread, and continues work that was waiting for it: for example a second card that was
+blocked on the first one. The relay text tells it to self-assign a waiting card, or to run
+`hermes -p default gitlab continue --issue '<project-id>:issues:<iid>' --request '<text>'`
+for an issue session that is already assigned. A relayed turn has no mentioning post, so
+`continue` verifies it against the recorded relay instead, requires `--request`, and
+queues one continuation per relayed report and issue. Answers to a relayed question or
+blocker go through the same command.
+
+The session key comes from `HERMES_SESSION_KEY` when `continue` queued the handoff, and is
+derived from the verified origin thread (channel type, channel, root post, profile) for
+card assignments. The plugin falls back to a plain post when injection is not allowed,
+the gateway runner is unavailable, the thread session no longer exists, or the relay is
+guarded: the same report text for the same issue and thread twice in a row, or a chain
+of three bot-to-bot relays (report → relayed continue → report …) without a human
+mention. Guarded reports still reach the thread and GitLab; they just do not wake the
+thread session. Injected turns skip the thread-context hook, so the relay text points a
+reset session at `mattermost-access thread` for the earlier discussion. The report also
+still lands in the GitLab card.
 
 Codev owns assigned work through implementation, review feedback and QA verification.
 It traces relevant UI/API/business-rule/authorization/data effects, makes routine

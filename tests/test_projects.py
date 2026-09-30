@@ -144,6 +144,47 @@ class ProjectSetup(unittest.TestCase):
         self.assertEqual(payload["issue"], "42:issues:3")
         self.assertEqual(payload["origin_url"],
                          f"http://127.0.0.1:{server.server_port}/mattermost/_redirect/pl/" + "b" * 26)
+        self.assertEqual(payload["origin_chat_type"], "channel")
+        self.assertNotIn("origin_session_key", payload)
+
+        # A turn the gateway started by relaying a GitLab report has no mentioning post. It may
+        # continue an assigned issue once per relayed report, carrying --request as its text.
+        key = "agent:commerce:mattermost:channel:" + "a" * 26 + ":" + "b" * 26
+        relay_payload = {"issue": "42:issues:5", "profile": "commerce", "origin_channel": "a" * 26,
+                         "origin_root": "b" * 26, "origin_post": "c" * 26, "origin_user": "d" * 26,
+                         "origin_url": f"http://127.0.0.1:{server.server_port}/mattermost/_redirect/pl/" + "b" * 26,
+                         "issue_url": server.gitlab_url + "/group/repo/-/issues/5", "origin_chat_type": "channel"}
+        with sqlite3.connect(path) as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS relays (
+                id TEXT PRIMARY KEY, session_key TEXT NOT NULL, issue TEXT NOT NULL, payload TEXT NOT NULL,
+                relay_post TEXT NOT NULL, body_hash TEXT NOT NULL, chain INTEGER NOT NULL DEFAULT 0,
+                injected_at TEXT NOT NULL)""")
+            db.execute("INSERT INTO relays VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                       ("handoff:parent", key, "42:issues:5", json.dumps(relay_payload), "f" * 26, "hash", 1,
+                        "2026-09-30T00:00:00+00:00"))
+        state["assigned"] = True
+        relayed = {**context, "HERMES_SESSION_MESSAGE_ID": "", "HERMES_SESSION_KEY": key}
+        with patch.dict(os.environ, relayed):
+            with self.assertRaisesRegex(SystemExit, "needs --request"):
+                self.run_command("continue", "--issue", "42:issues:3")
+            self.assertIn("queued", self.run_command("continue", "--issue", "42:issues:3",
+                                                     "--request", "Blocker #5 beres, lanjutkan."))
+            self.assertIn("queued", self.run_command("continue", "--issue", "42:issues:3",
+                                                     "--request", "Blocker #5 beres, lanjutkan."))
+        with patch.dict(os.environ, {**relayed, "HERMES_SESSION_KEY": key + ":" + "9" * 26}):
+            with self.assertRaisesRegex(SystemExit, "No relayed GitLab report"):
+                self.run_command("continue", "--issue", "42:issues:3", "--request", "lanjut")
+        with patch.dict(os.environ, {**relayed, "HERMES_SESSION_THREAD_ID": "9" * 26}):
+            with self.assertRaisesRegex(SystemExit, "does not belong to this Mattermost thread"):
+                self.run_command("continue", "--issue", "42:issues:3", "--request", "lanjut")
+        with sqlite3.connect(path) as db:
+            rows = db.execute("SELECT payload FROM handoffs ORDER BY rowid").fetchall()
+        self.assertEqual(len(rows), 2)
+        payload = json.loads(rows[1][0])
+        self.assertEqual((payload["issue"], payload["relay_of"], payload["chain"], payload["origin_post"]),
+                         ("42:issues:3", "handoff:parent", 2, "f" * 26))
+        self.assertEqual((payload["origin_session_key"], payload["origin_user"], payload["request"]),
+                         (key, "d" * 26, "Blocker #5 beres, lanjutkan."))
 
     def test_create_reuse_and_list_project_preserves_knowledge_and_config(self):
         self.run_command("add-project", "commerce", "--repos", "101,102", "--description", "Commerce services")

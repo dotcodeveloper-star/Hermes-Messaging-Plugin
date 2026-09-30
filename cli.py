@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 import tempfile
 from urllib.parse import urlsplit
 from urllib.error import HTTPError, URLError
@@ -383,6 +384,8 @@ def setup_parser(parser):
     commands.add_parser("sync-knowledge", help="Refresh project SOULs, repository inventories and bundled skills")
     resume = commands.add_parser("continue", help="Continue a verified Mattermost request in its GitLab issue session")
     resume.add_argument("--issue", required=True, help="Numeric project-id:issues:iid")
+    resume.add_argument("--request", help="Instruction text; required when this turn was started by a "
+                        "GitLab report the gateway relayed into the thread (no mentioning post)")
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -401,19 +404,24 @@ def _gitlab_get(url, token, path):
         raise ValueError("GitLab API is unavailable") from None
 
 
-def continue_issue(root, issue, environ=None):
-    """Verify this routed Mattermost turn, then queue a durable GitLab session turn."""
-    env = os.environ if environ is None else environ
-    match = re.fullmatch(r"([1-9][0-9]*):issues:([1-9][0-9]*)", issue)
-    if not match:
-        raise ValueError("Use a numeric GitLab issue identity: project-id:issues:iid")
-    if env.get("HERMES_SESSION_PLATFORM") != "mattermost":
-        raise ValueError("Continue must be called from a Mattermost session")
-    access = _mattermost_access()
-    channel = access.require_id(env.get("HERMES_SESSION_CHAT_ID"), "channel")
+def _gitlab_connection(config):
+    extra = PlatformConfig.from_dict(merge_platform_sections(config, config.get("gateway", {}), {})
+                                     .get("gitlab", {})).extra
+    url = str(extra_or_secret(extra, "url", "GITLAB_URL") or "").rstrip("/")
+    token = str(extra_or_secret(extra, "token", "GITLAB_TOKEN") or "")
+    parsed = urlsplit(url)
+    if (not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment
+            or (parsed.scheme != "https" and not
+                (parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"}))
+            or not token):
+        raise ValueError("Default-profile GitLab connection is unavailable")
+    return url, token
+
+
+def _verified_mention(access, env, root, channel, session_key):
+    """Origin fields of the live Mattermost post that mentioned the bot in this session."""
     post_id = access.require_id(env.get("HERMES_SESSION_MESSAGE_ID"), "post")
     user = access.require_id(env.get("HERMES_SESSION_USER_ID"), "user")
-    profile = env.get("HERMES_SESSION_PROFILE") or "default"
     mm_url, mm_api = access.api_client(environ=env, home=root)
     post = mm_api("GET", f"posts/{post_id}")
     me = mm_api("GET", "users/me")
@@ -431,32 +439,89 @@ def continue_issue(root, issue, environ=None):
     if not re.search(r"(?<![\w@])@(?:" + re.escape(str(me.get("username") or "")) + "|"
                      + re.escape(str(me.get("id") or "")) + r")(?![\w.-])", message, re.I):
         raise ValueError("The current Mattermost post must mention the bot")
-    allowed = access.allowlist(access.credentials(environ=env, home=root)[2])
-    if allowed is not None and user not in allowed:
-        raise ValueError("Mattermost user is not allowed to request a handoff")
+    origin = {"origin_channel": channel, "origin_root": root_id, "origin_post": post_id, "origin_user": user,
+              "origin_url": f"{mm_url}/_redirect/pl/{root_id}",
+              "origin_chat_type": "channel" if room.get("type") == "O" else "group"}
+    if session_key:
+        origin["origin_session_key"] = session_key
+    return origin, message
+
+
+def _active_relay(state_path, session_key, channel, thread):
+    """Origin fields of the GitLab report the gateway relayed into this Mattermost session.
+
+    A relayed turn has no mentioning post. Its authority is the recorded relay: the thread,
+    user and permalink verified when the original handoff was queued. The synthetic relay
+    post keeps one continuation per relayed report and issue.
+    """
+    missing = ValueError("No relayed GitLab report is active in this Mattermost session; "
+                         "continue needs a live mention otherwise")
+    if not session_key or not state_path.exists():
+        raise missing
+    with sqlite3.connect(state_path, timeout=5) as db:
+        try:
+            row = db.execute("SELECT id, payload, relay_post, chain FROM relays WHERE session_key = ? "
+                             "ORDER BY injected_at DESC, rowid DESC LIMIT 1", (session_key,)).fetchone()
+        except sqlite3.OperationalError:
+            row = None
+    if not row:
+        raise missing
+    payload = json.loads(row[1])
+    if payload.get("origin_channel") != channel or (thread and payload.get("origin_root") != thread):
+        raise ValueError("Relayed GitLab report does not belong to this Mattermost thread")
+    return {"origin_channel": payload["origin_channel"], "origin_root": payload["origin_root"],
+            "origin_post": row[2], "origin_user": payload["origin_user"], "origin_url": payload["origin_url"],
+            "origin_chat_type": payload.get("origin_chat_type") or "channel",
+            "origin_session_key": session_key, "relay_of": row[0], "chain": int(row[3] or 0) + 1}
+
+
+def continue_issue(root, issue, environ=None, request=None):
+    """Verify this routed Mattermost turn, then queue a durable GitLab session turn.
+
+    A turn started by a user mention is verified against the live post. A turn the gateway
+    started by relaying a GitLab report into this thread session has no post; it is verified
+    against the recorded relay and carries ``request`` as its text.
+    """
+    env = os.environ if environ is None else environ
+    match = re.fullmatch(r"([1-9][0-9]*):issues:([1-9][0-9]*)", issue)
+    if not match:
+        raise ValueError("Use a numeric GitLab issue identity: project-id:issues:iid")
+    if env.get("HERMES_SESSION_PLATFORM") != "mattermost":
+        raise ValueError("Continue must be called from a Mattermost session")
+    access = _mattermost_access()
+    channel = access.require_id(env.get("HERMES_SESSION_CHAT_ID"), "channel")
+    profile = env.get("HERMES_SESSION_PROFILE") or "default"
+    session_key = str(env.get("HERMES_SESSION_KEY") or "")
+    relayed = not env.get("HERMES_SESSION_MESSAGE_ID")
+    request = (request or "").strip()
+    if relayed and not request:
+        raise ValueError("A relayed continuation needs --request text")
     config = read_config(root / "config.yaml")
     routes = [route for route in route_settings(config).get("profile_routes", [])
               if managed_route(route) and route.get("enabled", True)
               and route.get("chat_id") == f"repo:{match[1]}"]
     if len(routes) != 1 or routes[0].get("profile") != profile:
         raise ValueError("Issue repository is not routed to this Mattermost project profile")
-    extra = PlatformConfig.from_dict(merge_platform_sections(config, config.get("gateway", {}), {})
-                                     .get("gitlab", {})).extra
-    url = str(extra_or_secret(extra, "url", "GITLAB_URL") or "").rstrip("/")
-    token = str(extra_or_secret(extra, "token", "GITLAB_TOKEN") or "")
-    parsed = urlsplit(url)
-    if (not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment
-            or (parsed.scheme != "https" and not
-                (parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"}))
-            or not token):
-        raise ValueError("Default-profile GitLab connection is unavailable")
+    url, token = _gitlab_connection(config)
     bot = _gitlab_get(url, token, "user")
-    item = _gitlab_get(url, token, f"projects/{match[1]}/issues/{match[2]}")
     if not isinstance(bot, dict):
         raise ValueError("GitLab bot identity is unavailable")
     bot_id = str(bot.get("id") or "")
     if not re.fullmatch(r"[1-9][0-9]*", bot_id):
         raise ValueError("GitLab bot identity is unavailable")
+    state_root = root / "gitlab"
+    state_root.mkdir(exist_ok=True, mode=0o700)
+    state_path = state_root / (hashlib.sha256(f"{url}\n{bot_id}".encode()).hexdigest() + ".sqlite3")
+    if relayed:
+        origin, mention = _active_relay(state_path, session_key, channel, env.get("HERMES_SESSION_THREAD_ID")), None
+        message = request
+    else:
+        origin, mention = _verified_mention(access, env, root, channel, session_key)
+        message = mention + ("\n\nInstruksi CoDev: " + request if request else "")
+    allowed = access.allowlist(access.credentials(environ=env, home=root)[2])
+    if allowed is not None and origin["origin_user"] not in allowed:
+        raise ValueError("Mattermost user is not allowed to request a handoff")
+    item = _gitlab_get(url, token, f"projects/{match[1]}/issues/{match[2]}")
     if not isinstance(item, dict) or not isinstance(item.get("assignees"), list):
         raise ValueError("GitLab issue assignment is unavailable")
     if bot_id not in {str(row.get("id")) for row in item["assignees"] if isinstance(row, dict)}:
@@ -464,22 +529,17 @@ def continue_issue(root, issue, environ=None):
     issue_url = str(item.get("web_url") or "")
     if not issue_url.startswith(url + "/"):
         raise ValueError("GitLab issue URL does not match the configured server")
-    links = {link.rstrip(".,;]") for link in re.findall(r"https?://[^\s<>()]+", message)}
-    issue_links = {link.split("?", 1)[0].split("#", 1)[0].rstrip("/") for link in links
-                   if link.startswith(url + "/") and
-                   re.search(r"/-/issues/[1-9][0-9]*/?(?:[?#]|$)", link)}
-    if len(issue_links) > 1:
-        raise ValueError("Ambiguous GitLab issue links in the Mattermost request")
-    if issue_links and issue_url.rstrip("/") not in issue_links:
-        raise ValueError("Selected issue does not match the Mattermost issue link")
-    state_root = root / "gitlab"
-    state_root.mkdir(exist_ok=True, mode=0o700)
-    state_path = state_root / (hashlib.sha256(f"{url}\n{bot_id}".encode()).hexdigest() + ".sqlite3")
+    if mention is not None:
+        links = {link.rstrip(".,;]") for link in re.findall(r"https?://[^\s<>()]+", mention)}
+        issue_links = {link.split("?", 1)[0].split("#", 1)[0].rstrip("/") for link in links
+                       if link.startswith(url + "/") and
+                       re.search(r"/-/issues/[1-9][0-9]*/?(?:[?#]|$)", link)}
+        if len(issue_links) > 1:
+            raise ValueError("Ambiguous GitLab issue links in the Mattermost request")
+        if issue_links and issue_url.rstrip("/") not in issue_links:
+            raise ValueError("Selected issue does not match the Mattermost issue link")
     identity = enqueue_handoff(state_path, {
-        "issue": issue, "profile": profile, "origin_channel": channel, "origin_root": root_id,
-        "origin_post": post_id, "origin_user": user,
-        "origin_url": f"{mm_url}/_redirect/pl/{root_id}",
-        "issue_url": issue_url, "request": message[:4000],
+        "issue": issue, "profile": profile, **origin, "issue_url": issue_url, "request": message[:4000],
     })
     os.chmod(state_path, 0o600)
     return identity
@@ -666,7 +726,7 @@ def command(args):
                   "changed SOULs and skill files backed up, additional skills and memories preserved.")
             return
         if args.gitlab_command == "continue":
-            identity = continue_issue(root, args.issue)
+            identity = continue_issue(root, args.issue, request=args.request)
             print(f"GitLab issue continuation queued: {identity}")
             return
         if args.gitlab_command == "projects":

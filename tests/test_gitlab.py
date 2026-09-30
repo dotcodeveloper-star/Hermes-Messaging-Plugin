@@ -3,6 +3,7 @@ import asyncio
 import copy
 from datetime import datetime, timezone
 import importlib.util
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -14,7 +15,7 @@ from aiohttp import web
 from aiohttp.test_utils import TestServer
 from gateway.config import GatewayConfig, PlatformConfig
 from gateway.platforms.event import ProcessingOutcome
-from gateway.session import SessionStore, build_session_key
+from gateway.session import SessionSource, SessionStore, build_session_key
 from hermes_cli.plugins import PluginManager
 from hermes_cli.plugins_manifest import parse_manifest_file
 
@@ -869,7 +870,12 @@ class GitLabFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.events[0].user_id, "99")
         self.assertEqual(self.events[0].source.chat_id, "42:issues:3")
 
-    async def mattermost_server(self, mm_posts, *, thread_root="b" * 26, channel="a" * 26):
+    async def mattermost_server(self, mm_posts, *, thread_root="b" * 26, channel="a" * 26, channel_type="O"):
+        async def mattermost_channel(request):
+            if request.match_info["channel_id"] != channel:
+                return web.json_response({"error": "missing"}, status=404)
+            return web.json_response({"id": channel, "type": channel_type})
+
         async def mattermost_post(request):
             self.assertEqual(request.headers.get("Authorization"), "Bearer mm-pat")
             mm_posts.append(await request.json())
@@ -888,6 +894,7 @@ class GitLabFlow(unittest.IsolatedAsyncioTestCase):
         app = web.Application()
         app.router.add_post("/api/v4/posts", mattermost_post)
         app.router.add_get("/api/v4/posts/{post_id}", mattermost_get)
+        app.router.add_get("/api/v4/channels/{channel_id}", mattermost_channel)
         mm = TestServer(app)
         self.addAsyncCleanup(mm.close)
         await mm.start_server()
@@ -937,7 +944,152 @@ class GitLabFlow(unittest.IsolatedAsyncioTestCase):
         row = self.adapter._db.execute("SELECT payload, completed, mattermost_post_id FROM handoffs WHERE id = ?",
                                        (event.message_id,)).fetchone()
         self.assertEqual((row[1], row[2]), (1, "e" * 26))
+        self.assertEqual(json.loads(row[0])["origin_chat_type"], "channel")
         self.assertEqual(self.adapter._inflight, {})
+
+    def relay_host(self, injected, *, allowed=True, routed=True):
+        """Stand in for the live gateway runner and plugin context that accept injected turns."""
+        async def dispatch(**kwargs):
+            injected.append(kwargs)
+            return routed
+
+        self.adapter.gateway_runner = SimpleNamespace(_dispatch_plugin_message_injection=dispatch,
+                                                      _startup_restore_in_progress=False,
+                                                      _profile_name_for_source=lambda source, **_: None)
+        self.module._PLUGIN_CONTEXT = SimpleNamespace(plugin_id="hermes-gitlab",
+                                                      _gateway_injection_allowed=lambda: allowed)
+        self.addCleanup(setattr, self.module, "_PLUGIN_CONTEXT", None)
+
+    def relay_handoff(self, mm=None, **overrides):
+        """A queued Mattermost handoff; with `mm`, its origin permalink resolves on that fake server."""
+        handoff = {
+            "issue": "42:issues:3", "profile": "default",
+            "origin_channel": "a" * 26, "origin_root": "b" * 26,
+            "origin_post": "c" * 26, "origin_user": "d" * 26,
+            "origin_url": "https://mattermost.example/pl/" + "b" * 26,
+            "issue_url": "https://gitlab.example/group/repo/-/issues/3",
+            "request": "Lanjutkan pekerjaan ini", "origin_chat_type": "channel",
+            "origin_session_key": "agent:main:mattermost:channel:" + "a" * 26 + ":" + "b" * 26,
+        }
+        if mm is not None:
+            handoff["origin_url"] = str(mm.make_url("/_redirect/pl/" + "b" * 26))
+        handoff.update(overrides)
+        return handoff
+
+    def report_on_turn(self, content):
+        async def capture(event):
+            self.events.append(event)
+            result = await self.adapter.send("42:issues:3", content, reply_to=event.message_id,
+                                             metadata={"notify": True, "hermes_profile": "default"})
+            self.assertTrue(result.success, result.error)
+            event._heartbeat_execution_started = True
+            event._gateway_accepted = True
+            await self.adapter.on_processing_complete(event, ProcessingOutcome.SUCCESS)
+
+        self.adapter.handle_message = capture
+
+    async def test_handoff_report_continues_the_origin_mattermost_session(self):
+        mm_posts, injected = [], []
+        mm = await self.mattermost_server(mm_posts)
+        self.relay_host(injected)
+        handoff = self.relay_handoff()
+        identity = self.module.enqueue_handoff(self.adapter.state_path, handoff)
+        self.report_on_turn("MR !57 merged, staging hijau. Tinggal QA.")
+        with patch.dict(os.environ, {"MATTERMOST_URL": str(mm.make_url("/")), "MATTERMOST_TOKEN": "mm-pat"}):
+            await self.adapter._poll_once()
+            await self.adapter._poll_once()
+        self.assertEqual(len(self.events), 1)
+        self.assertEqual(len(injected), 1)
+        self.assertEqual(injected[0]["session_key"], handoff["origin_session_key"])
+        self.assertEqual(injected[0]["plugin_id"], "hermes-gitlab")
+        text = injected[0]["content"]
+        self.assertIn("MR !57 merged, staging hijau.", text)
+        self.assertIn("[RM1](" + handoff["origin_url"], text)
+        self.assertIn("[RG](" + handoff["issue_url"], text)
+        self.assertIn("gitlab continue --issue '42:issues:3' --request", text)
+        self.assertIn("mattermost-access thread --post '" + handoff["origin_url"], text)
+        self.assertEqual(mm_posts, [], "the thread session's own reply carries the report; no direct post")
+        row = self.adapter._db.execute("SELECT completed, mattermost_post_id FROM handoffs WHERE id = ?",
+                                       (identity,)).fetchone()
+        self.assertEqual(row, (1, "session:" + handoff["origin_session_key"]))
+        relay = self.adapter._db.execute("SELECT session_key, issue, relay_post, chain FROM relays WHERE id = ?",
+                                         (identity,)).fetchone()
+        self.assertEqual((relay[0], relay[1], relay[3]), (handoff["origin_session_key"], "42:issues:3", 0))
+        self.assertRegex(relay[2], r"^[0-9a-f]{26}$")
+        # The GitLab note still lands in the card, and nothing is retried later.
+        self.assertEqual(len([post for path, post in self.posts if path.startswith("/api/v4/projects/42/issues/3/")
+                              and "MR !57 merged" in post.get("body", "")]), 1)
+        self.assertEqual(self.adapter._inflight, {})
+
+    async def test_handoff_report_derives_the_thread_session_key_for_card_handoffs(self):
+        mm_posts, injected = [], []
+        mm = await self.mattermost_server(mm_posts, channel_type="P")
+        self.relay_host(injected)
+        handoff = self.relay_handoff(origin_chat_type="group", origin_session_key=None, profile="default")
+        self.module.enqueue_handoff(self.adapter.state_path, handoff)
+        self.report_on_turn("Blocker: butuh keputusan skema tabel.")
+        with patch.dict(os.environ, {"MATTERMOST_URL": str(mm.make_url("/")), "MATTERMOST_TOKEN": "mm-pat"}):
+            await self.adapter._poll_once()
+        expected = build_session_key(SessionSource(platform=self.module.Platform.MATTERMOST, chat_id="a" * 26,
+                                                   chat_type="group", user_id="d" * 26, thread_id="b" * 26),
+                                     profile="default")
+        self.assertEqual(expected, "agent:main:mattermost:group:" + "a" * 26 + ":" + "b" * 26)
+        self.assertEqual([call["session_key"] for call in injected], [expected])
+        self.assertEqual(mm_posts, [])
+
+    async def test_handoff_report_posts_to_the_thread_when_injection_is_unavailable(self):
+        for allowed, routed in ((False, True), (True, False)):
+            with self.subTest(allowed=allowed, routed=routed):
+                mm_posts, injected = [], []
+                mm = await self.mattermost_server(mm_posts)
+                self.relay_host(injected, allowed=allowed, routed=routed)
+                handoff = self.relay_handoff(mm, origin_post=("f" if allowed else "e") * 26)
+                identity = self.module.enqueue_handoff(self.adapter.state_path, handoff)
+                self.report_on_turn("Selesai: MR !58 dibuat.")
+                with patch.dict(os.environ, {"MATTERMOST_URL": str(mm.make_url("/")), "MATTERMOST_TOKEN": "mm-pat"}):
+                    await self.adapter._poll_once()
+                self.assertEqual(len(injected), 0 if not allowed else 1)
+                self.assertEqual(len(mm_posts), 1)
+                self.assertIn("Selesai: MR !58 dibuat.", mm_posts[0]["message"])
+                self.assertEqual((mm_posts[0]["channel_id"], mm_posts[0]["root_id"]), ("a" * 26, "b" * 26))
+                self.assertEqual(self.adapter._db.execute(
+                    "SELECT completed, mattermost_post_id FROM handoffs WHERE id = ?", (identity,)).fetchone(),
+                    (1, "e" * 26))
+                self.assertIsNone(self.adapter._db.execute(
+                    "SELECT 1 FROM relays WHERE id = ?", (identity,)).fetchone())
+
+    async def test_handoff_report_relay_is_bounded_against_bot_loops(self):
+        mm_posts, injected = [], []
+        mm = await self.mattermost_server(mm_posts)
+        self.relay_host(injected)
+        env = {"MATTERMOST_URL": str(mm.make_url("/")), "MATTERMOST_TOKEN": "mm-pat"}
+        # A relay chain at the limit goes to humans only.
+        self.module.enqueue_handoff(self.adapter.state_path, self.relay_handoff(
+            mm, origin_post="1" * 26, chain=self.module.MAX_RELAY_CHAIN, relay_of="handoff:parent"))
+        self.report_on_turn("Masih butuh keputusan skema tabel.")
+        with patch.dict(os.environ, env):
+            await self.adapter._poll_once()
+        self.assertEqual((len(injected), len(mm_posts)), (0, 1))
+        # A first-hand report is relayed; the same report again for the same issue and thread is not.
+        for post in ("2" * 26, "3" * 26):
+            self.module.enqueue_handoff(self.adapter.state_path, self.relay_handoff(mm, origin_post=post))
+            self.report_on_turn("Blocker: sandbox payment menolak credential.")
+            with patch.dict(os.environ, env):
+                await self.adapter._poll_once()
+        self.assertEqual((len(injected), len(mm_posts)), (1, 2))
+        self.assertEqual(self.adapter._db.execute("SELECT COUNT(*) FROM relays").fetchone(), (1,))
+
+    async def test_relayed_continue_request_is_marked_for_the_issue_session(self):
+        store = self.session_store()
+        handoff = self.relay_handoff(origin_post="4" * 26, relay_of="handoff:parent", chain=1,
+                                     request="Pakai kolom nullable dulu, backfill belakangan.")
+        self.module.enqueue_handoff(self.adapter.state_path, handoff)
+        await self.adapter._poll_once()
+        self.assertEqual(len(self.events), 1)
+        self.assertIn("Pakai kolom nullable dulu", self.events[0].text)
+        self.assertIn("relayed by the Mattermost thread session", self.events[0].text)
+        self.assertEqual(self.events[0].source.chat_id, "42:issues:3")
+        self.assertIsNotNone(store)
 
     async def test_assignment_without_mattermost_or_with_a_foreign_permalink_stays_plain(self):
         mm_posts = []
