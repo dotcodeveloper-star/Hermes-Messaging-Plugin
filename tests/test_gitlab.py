@@ -32,6 +32,9 @@ class GitLabFlow(unittest.IsolatedAsyncioTestCase):
         self.env.start()
         self.addCleanup(self.env.stop)
         self.addCleanup(self.tmp.cleanup)
+        # Disconnect publishes gateway_state.json from a writer thread; let it land before rmtree.
+        from gateway.status import flush_runtime_status
+        self.addCleanup(flush_runtime_status)
         manifest = parse_manifest_file(path.with_name("plugin.yaml"), path.parent, "user", "")
         self.assertIsNotNone(manifest)
         manager = PluginManager()
@@ -365,6 +368,64 @@ class GitLabFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([e.get_command() for e in self.events], [None, "status", "stop"])
         self.assertEqual(self.row()[0], 1)
         self.assertFalse(self.adapter._active_sessions)
+
+    async def test_mentions_on_a_busy_card_steer_the_running_turn(self):
+        started, release = asyncio.Event(), asyncio.Event()
+        steered = []
+
+        class Agent:
+            def steer(self, text):
+                steered.append(text)
+                return True
+
+        async def handler(event):
+            self.events.append(event)
+            event._heartbeat_execution_started = True
+            started.set()
+            await release.wait()
+            return "Answer"
+
+        async def resolve(event, session_key, mode, running_agent):
+            self.assertEqual(mode, "steer")
+            self.assertEqual(session_key, self.adapter._event_session_key(event))
+            return SimpleNamespace(steered=running_agent is not None and running_agent.steer(event.text))
+
+        state = SimpleNamespace(turn=SimpleNamespace(agent=None))
+        self.adapter.gateway_runner = SimpleNamespace(
+            _startup_restore_in_progress=False, _profile_name_for_source=lambda *args, **kwargs: None,
+            _peek_session_state=lambda key: state, _resolve_busy_steer_or_redirect=resolve)
+        self.native_handler(handler)
+        self.todos = [self.todo()]
+        await self.adapter._poll_once()
+        await asyncio.wait_for(started.wait(), 5)
+        # The native turn has not started its agent yet: the mention waits in the inbox.
+        self.todos.append(self.command_todo(102, "@hermes-bot also update the docs", 901))
+        await self.adapter._poll_once()
+        self.assertEqual(steered, [])
+        self.assertEqual(self.row(102)[0], 0)
+        # A live agent receives the mention mid-run; the inbox item completes without a new turn.
+        state.turn.agent = Agent()
+        await self.adapter._poll_once()
+        self.assertEqual(len(steered), 1)
+        self.assertIn("also update the docs", steered[0])
+        self.assertIn("card 42:issues:3", steered[0])
+        self.assertEqual(self.row(102)[0], 1)
+        self.assertEqual(len(self.events), 1)
+        self.assertEqual(self.posts[-1][0], "/api/v4/projects/42/issues/3/discussions/commands/notes")
+        self.assertIn("pekerjaan yang sedang berjalan", self.posts[-1][1]["body"])
+        # Assignments keep their own turn (origin note, report relay) and stay queued while busy.
+        self.todos.append(self.todo(103, action_name="assigned", body=""))
+        await self.adapter._poll_once()
+        self.assertEqual(len(steered), 1)
+        self.assertEqual(self.row(103)[0], 0)
+        release.set()
+        await self.finish_native()
+        await self.adapter._poll_once()
+        await self.finish_native()
+        self.assertEqual(len(self.events), 2)
+        self.assertEqual(self.events[1].message_id, "todo:103")
+        self.assertEqual(self.row(103)[0], 1)
+        self.assertEqual(len(steered), 1)
 
     async def test_approval_matches_live_prompt_and_cannot_approve_another_request(self):
         from tools import approval
