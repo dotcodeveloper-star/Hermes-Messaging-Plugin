@@ -92,6 +92,20 @@ class DesktopAPI(unittest.TestCase):
             self.assertEqual(response.status_code, 200, response.text)
             state = response.json()
             self.assertEqual(state["projects"], [], "Unmarked personal profiles are not GitLab projects")
+            # The native plugin scope must not treat the project path as an existing profile selector.
+            config["gateway"]["profile_routes"] = [{"name": "hermes-gitlab-repo-42", "platform": "gitlab",
+                                                   "chat_id": "repo:42", "profile": "missing"}]
+            config["platforms"]["gitlab"]["extra"]["projects"] = ["42"]
+            config_path.write_text(yaml.safe_dump(config))
+            state = client.get(base + "/projects").json()
+            response = client.request("DELETE", base + "/projects/missing", json={
+                "revision": state["revision"], "confirmation": "missing"})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertFalse(response.json()["profile_delete_required"])
+            self.assertFalse((root / "profiles" / "missing").exists())
+            self.assertEqual(yaml.safe_load(config_path.read_text())["platforms"]["gitlab"]["extra"]["projects"], [])
+            state = client.get(base + "/projects").json()
+            self.assertEqual(state["projects"], [])
             response = client.request("DELETE", base + "/projects/personal", json={
                 "revision": state["revision"], "confirmation": "personal"})
             self.assertEqual(response.status_code, 409)
@@ -231,7 +245,8 @@ class DesktopAPI(unittest.TestCase):
             self.assertNotIn("test-bot-pat", json.dumps(listed))
             self.assertEqual(len(client.get(base + "/events?status=open").json()["events"]), 2)
             self.assertEqual(client.get(base + "/events?q=invoices").json()["events"][0]["id"], "102")
-            self.assertEqual(client.get(base + "/events?profile=missing").json()["events"], [])
+            self.assertEqual(client.get(base + "/events?profile=personal").json()["events"], [])
+            self.assertEqual(client.get(base + "/events?profile=missing").status_code, 404)
             state_db = sqlite3.connect(profile / "state.db")
             with state_db:
                 state_db.execute("DROP TABLE IF EXISTS sessions")
@@ -286,7 +301,8 @@ class DesktopAPI(unittest.TestCase):
             self.assertEqual(listed_sessions["sessions"][1]["cost_status"], "included")
             self.assertAlmostEqual(listed_sessions["sessions"][1]["cost_usd"], 0.00185, places=5)
             self.assertEqual(client.get(base + "/sessions?q=invoices").json()["sessions"][0]["id"], "sess-included")
-            self.assertEqual(client.get(base + "/sessions?profile=missing").json()["sessions"], [])
+            self.assertEqual(client.get(base + "/sessions?profile=personal").json()["sessions"], [])
+            self.assertEqual(client.get(base + "/sessions?profile=missing").status_code, 404)
             activity = client.get(base + "/activity?year=2026&month=9").json()
             self.assertEqual([(day["date"], day["responses"]) for day in activity["days"]],
                              [("2026-09-15", 2), ("2026-09-16", 1)])

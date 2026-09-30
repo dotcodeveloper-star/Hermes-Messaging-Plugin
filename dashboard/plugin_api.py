@@ -718,8 +718,8 @@ async def restart_status(pid: int = Query(ge=1)):
     return {"status": status}
 
 
-@router.put("/projects/{profile}")
-async def save_project(profile: str, mapping: Mapping):
+@router.put("/projects/{project_name}")
+async def save_project(project_name: str, mapping: Mapping):
     with errors(), root_scope() as root:
         _, extra, revision = settings(root)
         if mapping.revision != revision:
@@ -732,7 +732,7 @@ async def save_project(profile: str, mapping: Mapping):
             if row["id"] != ident:
                 raise HTTPException(502, "GitLab returned a different repository")
             info[ident] = row
-        name, path, created = await asyncio.to_thread(cli.add_project, root, profile, mapping.repositories,
+        name, path, created = await asyncio.to_thread(cli.add_project, root, project_name, mapping.repositories,
             mapping.description, replace=True, revision=mapping.revision, repository_info=info,
             require_project_profile=True)
         setup = model_setup(path)
@@ -750,9 +750,9 @@ class DeleteMapping(BaseModel):
     confirmation: str = Field(min_length=1, max_length=64)
 
 
-@router.delete("/projects/{profile}")
-async def delete_project(profile: str, mapping: DeleteMapping):
+@router.delete("/projects/{project_name}")
+async def delete_project(project_name: str, mapping: DeleteMapping):
     with errors(), root_scope() as root:
-        name, required = await asyncio.to_thread(cli.remove_project_registration, root, profile,
+        name, required = await asyncio.to_thread(cli.remove_project_registration, root, project_name,
             revision=mapping.revision, confirmation=mapping.confirmation)
         return {"profile": name, "profile_delete_required": required, "restart_required": True}
