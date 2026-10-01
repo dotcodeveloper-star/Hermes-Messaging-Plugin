@@ -1,4 +1,6 @@
 """Operator commands for mapping GitLab repositories to Hermes profiles."""
+import contextlib
+from datetime import datetime
 import fcntl
 import hashlib
 import json
@@ -14,11 +16,13 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 import yaml
 
-from gateway.config import GatewayConfig, PlatformConfig
+from gateway.config import GatewayConfig, Platform, PlatformConfig
 from gateway.config_loader import merge_platform_sections
 from gateway.platforms._shared import extra_or_secret
+from gateway.session import SessionSource, build_session_key
 from hermes_constants import get_default_hermes_root, get_hermes_home
 from hermes_cli.config_backups import backup_config
+from hermes_state import SessionDB
 from hermes_cli.profiles import create_profile, get_profile_dir, normalize_profile_name, validate_profile_name
 from utils import atomic_write_bytes, atomic_write_text, atomic_yaml_write
 
@@ -30,6 +34,8 @@ RESERVED_PROFILES = {"default", TEMPLATE_PROFILE, SHARED_PROFILE}
 RETIRED_SHARED_SKILLS = ("codev-gitlab", "mattermost-dm", "codev-handoff",
                          "gitlab-cli", "gitlab-workflow", "mattermost-onboarding")
 PROJECT_MARKER = "hermes_gitlab_project"
+STATUS_MESSAGES = 8          # transcript entries `gitlab status` shows by default
+STATUS_MESSAGE_CHARS = 1500  # per entry; session_search reads the full session
 
 
 def configure_project_display(profile):
@@ -386,6 +392,10 @@ def setup_parser(parser):
     resume.add_argument("--issue", required=True, help="Numeric project-id:issues:iid")
     resume.add_argument("--request", help="Instruction text; required when this turn was started by a "
                         "GitLab report the gateway relayed into the thread (no mentioning post)")
+    status = commands.add_parser("status", help="Show the latest history of a GitLab issue's session "
+                                 "without sending it a turn")
+    status.add_argument("--issue", required=True, help="Numeric project-id:issues:iid")
+    status.add_argument("--limit", type=int, default=STATUS_MESSAGES, help="Transcript entries to show (1-50)")
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -475,6 +485,86 @@ def _active_relay(state_path, session_key, channel, thread):
             "origin_session_key": session_key, "relay_of": row[0], "chain": int(row[3] or 0) + 1}
 
 
+def _routed_issue(config, issue, profile):
+    """Match ``project-id:issues:iid`` whose repository is routed to ``profile``."""
+    match = re.fullmatch(r"([1-9][0-9]*):issues:([1-9][0-9]*)", issue)
+    if not match:
+        raise ValueError("Use a numeric GitLab issue identity: project-id:issues:iid")
+    routes = [route for route in route_settings(config).get("profile_routes", [])
+              if managed_route(route) and route.get("enabled", True)
+              and route.get("chat_id") == f"repo:{match[1]}"]
+    if len(routes) != 1 or routes[0].get("profile") != profile:
+        raise ValueError("Issue repository is not routed to this Mattermost project profile")
+    return match
+
+
+def _message_line(row):
+    """One transcript line: speaker, time and text; tool-only turns show the tools they ran.
+
+    Raw tool output stays out: it is noisy and may hold secrets the reader should not relay.
+    """
+    if row.get("role") not in {"user", "assistant"}:
+        return None
+    text = str(row.get("content") or "").strip()
+    if not text and row.get("role") == "assistant":
+        calls = row.get("tool_calls")
+        if isinstance(calls, str):
+            try:
+                calls = json.loads(calls)
+            except ValueError:
+                calls = None
+        names = [str((call.get("function") or {}).get("name") or call.get("name") or "?")
+                 for call in calls or [] if isinstance(call, dict)]
+        text = "[tools: " + ", ".join(names) + "]" if names else ""
+    if not text:
+        return None
+    if len(text) > STATUS_MESSAGE_CHARS:
+        text = text[:STATUS_MESSAGE_CHARS] + " …"
+    stamp = datetime.fromtimestamp(float(row.get("timestamp") or 0)).strftime("%Y-%m-%d %H:%M")
+    return f"[{stamp}] {row['role']}: {text}"
+
+
+def issue_status(root, issue, environ=None, limit=STATUS_MESSAGES):
+    """Latest history of a GitLab issue's own session, read without starting a turn there.
+
+    The card's session key is fixed by its identity; the gateway's routing index names the
+    session id that key currently runs (it changes on /new, compression or resume).
+    """
+    env = os.environ if environ is None else environ
+    profile = env.get("HERMES_SESSION_PROFILE") or "default"
+    match = _routed_issue(read_config(root / "config.yaml"), issue, profile)
+    key = build_session_key(SessionSource(platform=Platform("gitlab"), chat_id=issue, chat_type="group",
+                                          thread_id=match[2]), profile=profile)
+    session_id = None
+    if (root / "state.db").exists():
+        with contextlib.closing(SessionDB(db_path=root / "state.db", read_only=True)) as routing:
+            entry = routing.load_gateway_routing_entries(scope=str(root / "sessions")).get(key)
+        session_id = entry and json.loads(entry).get("session_id")
+    db_path = get_profile_dir(profile) / "state.db"
+    if not db_path.exists():
+        return f"GitLab issue {issue} has no session yet; CoDev has not worked on it."
+    with contextlib.closing(SessionDB(db_path=db_path, read_only=True)) as db:
+        if not session_id:
+            # Routing rows are pruned with idle sessions; the newest transcript under the key remains.
+            rows = db.list_sessions_rich(session_key=key, limit=1, order_by_last_active=True)
+            session_id = rows[0]["id"] if rows else None
+        meta = session_id and db.get_session(session_id)
+        if not meta:
+            return f"GitLab issue {issue} has no session yet; CoDev has not worked on it."
+        messages = db.get_messages(session_id)
+    lines = [line for line in map(_message_line, messages) if line][-limit:]
+    activity = max(float(row.get("timestamp") or 0) for row in messages + [
+        {"timestamp": meta.get("last_activity_at") or meta.get("started_at")}])
+    state = f"ended ({meta['end_reason']})" if meta.get("end_reason") else "open"
+    header = [f"GitLab issue {issue} session @session:{profile}/{session_id}",
+              f"Title: {meta.get('title') or '-'}",
+              f"State: {state}; {meta.get('message_count') or 0} messages; last activity "
+              + datetime.fromtimestamp(activity).strftime("%Y-%m-%d %H:%M")
+              + (f" ({meta['last_activity_description']})" if meta.get("last_activity_description") else ""),
+              f"Latest {len(lines)} entries:"]
+    return "\n".join(header + lines)
+
+
 def continue_issue(root, issue, environ=None, request=None):
     """Verify this routed Mattermost turn, then queue a durable GitLab session turn.
 
@@ -483,9 +573,6 @@ def continue_issue(root, issue, environ=None, request=None):
     against the recorded relay and carries ``request`` as its text.
     """
     env = os.environ if environ is None else environ
-    match = re.fullmatch(r"([1-9][0-9]*):issues:([1-9][0-9]*)", issue)
-    if not match:
-        raise ValueError("Use a numeric GitLab issue identity: project-id:issues:iid")
     if env.get("HERMES_SESSION_PLATFORM") != "mattermost":
         raise ValueError("Continue must be called from a Mattermost session")
     access = _mattermost_access()
@@ -497,11 +584,7 @@ def continue_issue(root, issue, environ=None, request=None):
     if relayed and not request:
         raise ValueError("A relayed continuation needs --request text")
     config = read_config(root / "config.yaml")
-    routes = [route for route in route_settings(config).get("profile_routes", [])
-              if managed_route(route) and route.get("enabled", True)
-              and route.get("chat_id") == f"repo:{match[1]}"]
-    if len(routes) != 1 or routes[0].get("profile") != profile:
-        raise ValueError("Issue repository is not routed to this Mattermost project profile")
+    match = _routed_issue(config, issue, profile)
     url, token = _gitlab_connection(config)
     bot = _gitlab_get(url, token, "user")
     if not isinstance(bot, dict):
@@ -728,6 +811,11 @@ def command(args):
         if args.gitlab_command == "continue":
             identity = continue_issue(root, args.issue, request=args.request)
             print(f"GitLab issue continuation queued: {identity}")
+            return
+        if args.gitlab_command == "status":
+            if not 1 <= args.limit <= 50:
+                raise ValueError("--limit must be from 1 to 50")
+            print(issue_status(root, args.issue, limit=args.limit))
             return
         if args.gitlab_command == "projects":
             routes = route_settings(read_config(root / "config.yaml")).get("profile_routes", [])

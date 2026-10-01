@@ -1,7 +1,7 @@
 name: hermes-gitlab
 label: GitLab
 kind: platform
-version: 0.3.34
+version: 0.3.35
 description: Manage GitLab project profiles in Hermes Desktop and poll bot mentions and issue assignments.
 platforms:
   - gitlab

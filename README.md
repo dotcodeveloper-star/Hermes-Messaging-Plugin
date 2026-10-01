@@ -439,6 +439,18 @@ the same mention queue one request. Mattermost activity without a mention does n
 wake GitLab work; failed Mattermost report delivery retries without rerunning work.
 An optional `--request '<text>'` adds an instruction to the forwarded mention.
 
+### Reading an issue session's status
+
+A status question about an assigned issue does not need a turn in the issue session.
+`hermes -p default gitlab status --issue '<project-id>:issues:<iid>' [--limit N]` prints
+the latest user and assistant entries of that issue's session, its title, state and last
+activity. The issue's session key is fixed by its identity; the gateway routing index
+names the session id it currently runs, which changes on `/new`, compression or resume,
+and the newest transcript under the key is used once that routing row is pruned. The
+calling session's `HERMES_SESSION_PROFILE` must own the repository route. Raw tool output
+is left out; tool-only turns show the tool names. The output includes an
+`@session:<profile>/<id>` link that `session_search` reads in full.
+
 ### Reports continue the origin thread session
 
 With `plugins.entries.hermes-gitlab.allow_gateway_injection: true` on the default

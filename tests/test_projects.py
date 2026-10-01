@@ -72,6 +72,43 @@ class ProjectSetup(unittest.TestCase):
         cli.migrate_shared_skills(profile)
         self.assertEqual(len(list(profile.glob("backups/gitlab-skills/*"))), 1)
 
+    def test_status_reads_the_issue_sessions_latest_history_without_a_turn(self):
+        from hermes_state import SessionDB
+        self.run_command("add-project", "commerce", "--repos", "42")
+        with patch.dict(os.environ, {"HERMES_SESSION_PROFILE": "commerce"}):
+            self.assertIn("no session yet", self.run_command("status", "--issue", "42:issues:3"))
+        key = "agent:commerce:gitlab:group:42:issues:3:3"
+        with contextlib.closing(SessionDB(db_path=self.root / "profiles/commerce/state.db")) as db:
+            db.create_session("old", "gitlab", session_key=key)
+            db.append_message("old", "user", "Kerjakan issue #3", timestamp=1000)
+            db.create_session("new", "gitlab", session_key=key)
+            db.append_message("new", "user", "Lanjutkan migrasi", timestamp=2000)
+            db.append_message("new", "assistant", tool_calls=[{"id": "t", "type": "function", "function": {
+                "name": "terminal", "arguments": "{}"}}], timestamp=2001)
+            db.append_message("new", "tool", "TOKEN=secret-output", tool_call_id="t", timestamp=2002)
+            db.append_message("new", "assistant", "Migrasi selesai, MR !7 dibuka.", timestamp=2003)
+            db.create_session("other", "gitlab", session_key=key.replace(":3:3", ":4:4"))
+            db.append_message("other", "assistant", "Issue lain", timestamp=3000)
+        with patch.dict(os.environ, {"HERMES_SESSION_PROFILE": "commerce"}):
+            output = self.run_command("status", "--issue", "42:issues:3")
+            self.assertIn("@session:commerce/new", output)
+            self.assertIn("[tools: terminal]", output)
+            self.assertIn("Migrasi selesai, MR !7 dibuka.", output)
+            self.assertNotIn("secret-output", output)
+            self.assertNotIn("Issue lain", output)
+            self.assertNotIn("Lanjutkan migrasi", self.run_command("status", "--issue", "42:issues:3",
+                                                                   "--limit", "2"))
+            # The gateway routing index wins: /resume or /new can point the card at another session.
+            with contextlib.closing(SessionDB(db_path=self.root / "state.db")) as db:
+                db.save_gateway_routing_entry(key, json.dumps({"session_key": key, "session_id": "old"}),
+                                              scope=str(self.root.resolve() / "sessions"))
+            output = self.run_command("status", "--issue", "42:issues:3")
+            self.assertIn("@session:commerce/old", output)
+            self.assertIn("Kerjakan issue #3", output)
+        with patch.dict(os.environ, {"HERMES_SESSION_PROFILE": "personal"}):
+            with self.assertRaisesRegex(SystemExit, "not routed to this"):
+                self.run_command("status", "--issue", "42:issues:3")
+
     def test_continue_queues_only_a_verified_assigned_mattermost_request(self):
         self.run_command("add-project", "commerce", "--repos", "42")
         state = {"assigned": True, "message": "@hermes-bot lanjutkan pekerjaan ini"}
