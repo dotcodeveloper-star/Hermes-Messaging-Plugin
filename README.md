@@ -1,4 +1,4 @@
-# Hermes GitLab messaging · 0.3.33
+# Hermes GitLab messaging · 0.3.34
 
 GitLab mentions and issue assignments reach Hermes through **outbound polling**
 with a bot account PAT. **GitLab Projects** appears below **Kanban** in Hermes
@@ -623,7 +623,7 @@ held for retry before card context is fetched or an agent runs.
 Post a standalone comment starting with the bot mention, for example
 `@codev-bot /help` or `@codev-bot /status`. Use the username of your bot account.
 Commands bypass the card's busy queue and reply in the triggering discussion.
-Ordinary mentions on a busy card are steered into its running turn instead (see
+Ordinary mentions on a busy card follow the gateway's busy policy instead (see
 [Polling and reliability](#polling-and-reliability)).
 Issue descriptions, assignments, quotes, and ordinary prose remain agent context.
 
@@ -682,14 +682,15 @@ Requests on one card run sequentially. A successfully delivered native response
 completes the inbox item only after agent execution started. Busy/startup deferrals,
 context failures, and delivery failures are retried.
 
-A mention that arrives while the card's turn is still running is **steered** into
-that turn through the gateway's steer path, regardless of the profile's
-`display.busy_input_mode`: the running agent receives the comment as its next user
-message after the current tool batch, the inbox item completes, the bot acknowledges
-in the mention's discussion, and the turn's final reply covers both requests. If no
-agent is live yet (turn pending, startup restore) the item stays queued and the next
-poll retries. Issue assignments and Mattermost `gitlab continue` handoffs always wait
-for their own turn because they attach an origin note and relay a report. If the agent runs and returns
+A mention that arrives while the card's turn is still running is handed to the
+gateway's busy path, so the profile's `display.busy_input_mode` applies exactly as it
+does on Mattermost. With the default `interrupt`, the running turn stops at its next
+checkpoint, the gateway posts its busy acknowledgement in the mention's discussion, and
+the mention runs as the next turn on the same session with the interrupted work still
+in context. With `queue` it runs after the current turn; with `steer` it is folded into
+the running turn. The inbox item completes when that follow-up turn finishes. Issue
+assignments and Mattermost `gitlab continue` handoffs always wait for their own turn
+because they attach an origin note and relay a report. If the agent runs and returns
 a provider-error notice that is successfully posted, that request is handled;
 mention the bot again after fixing the provider problem. State lives at
 `<default Hermes home>/gitlab/<account-hash>.sqlite3`; the hash includes GitLab URL

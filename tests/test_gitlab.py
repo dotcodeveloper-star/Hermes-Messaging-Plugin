@@ -369,63 +369,59 @@ class GitLabFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.row()[0], 1)
         self.assertFalse(self.adapter._active_sessions)
 
-    async def test_mentions_on_a_busy_card_steer_the_running_turn(self):
+    async def test_mentions_on_a_busy_card_follow_the_native_busy_path(self):
         started, release = asyncio.Event(), asyncio.Event()
-        steered = []
-
-        class Agent:
-            def steer(self, text):
-                steered.append(text)
-                return True
 
         async def handler(event):
             self.events.append(event)
-            event._heartbeat_execution_started = True
-            started.set()
-            await release.wait()
+            if event.message_id != "todo:102":
+                event._heartbeat_execution_started = True  # The cold path stamps execution; drains do not.
+            if event.message_id == "todo:101":
+                started.set()
+                await release.wait()
             return "Answer"
 
-        async def resolve(event, session_key, mode, running_agent):
-            self.assertEqual(mode, "steer")
-            self.assertEqual(session_key, self.adapter._event_session_key(event))
-            return SimpleNamespace(steered=running_agent is not None and running_agent.steer(event.text))
+        async def wait_for(predicate):
+            for _ in range(50):
+                if predicate():
+                    return
+                await asyncio.sleep(0.1)
+            self.fail("condition not reached")
 
-        state = SimpleNamespace(turn=SimpleNamespace(agent=None))
-        self.adapter.gateway_runner = SimpleNamespace(
-            _startup_restore_in_progress=False, _profile_name_for_source=lambda *args, **kwargs: None,
-            _peek_session_state=lambda key: state, _resolve_busy_steer_or_redirect=resolve)
+        self.adapter.gateway_runner = SimpleNamespace(_startup_restore_in_progress=False,
+                                                      _profile_name_for_source=lambda *args, **kwargs: None)
         self.native_handler(handler)
         self.todos = [self.todo()]
         await self.adapter._poll_once()
         await asyncio.wait_for(started.wait(), 5)
-        # The native turn has not started its agent yet: the mention waits in the inbox.
+        key = self.adapter._event_session_key(self.events[0])
+        # A mention on the busy card is handed to the gateway's busy path (interrupt/queue per
+        # busy_input_mode) instead of waiting in the inbox for the next poll.
         self.todos.append(self.command_todo(102, "@hermes-bot also update the docs", 901))
         await self.adapter._poll_once()
-        self.assertEqual(steered, [])
+        queued = self.adapter._pending_messages.get(key)
+        self.assertIsNotNone(queued)
+        self.assertEqual(queued.message_id, "todo:102")
+        self.assertTrue(queued._gitlab_busy_followup)
+        self.assertIn("also update the docs", queued.text)
+        self.assertIn("todo:102", self.adapter._inflight)
         self.assertEqual(self.row(102)[0], 0)
-        # A live agent receives the mention mid-run; the inbox item completes without a new turn.
-        state.turn.agent = Agent()
-        await self.adapter._poll_once()
-        self.assertEqual(len(steered), 1)
-        self.assertIn("also update the docs", steered[0])
-        self.assertIn("card 42:issues:3", steered[0])
-        self.assertEqual(self.row(102)[0], 1)
         self.assertEqual(len(self.events), 1)
-        self.assertEqual(self.posts[-1][0], "/api/v4/projects/42/issues/3/discussions/commands/notes")
-        self.assertIn("pekerjaan yang sedang berjalan", self.posts[-1][1]["body"])
         # Assignments keep their own turn (origin note, report relay) and stay queued while busy.
         self.todos.append(self.todo(103, action_name="assigned", body=""))
         await self.adapter._poll_once()
-        self.assertEqual(len(steered), 1)
         self.assertEqual(self.row(103)[0], 0)
+        self.assertNotIn("todo:103", self.adapter._inflight)
         release.set()
-        await self.finish_native()
+        await wait_for(lambda: len(self.events) >= 2 and not self.adapter._inflight)
+        self.assertEqual([event.message_id for event in self.events], ["todo:101", "todo:102"])
+        self.assertEqual(self.row(101)[0], 1)
+        self.assertEqual(self.row(102)[0], 1)  # Completed through on_processing_start's execution stamp.
+        self.assertEqual(self.posts[-1][0], "/api/v4/projects/42/issues/3/discussions/commands/notes")
         await self.adapter._poll_once()
         await self.finish_native()
-        self.assertEqual(len(self.events), 2)
-        self.assertEqual(self.events[1].message_id, "todo:103")
+        self.assertEqual(self.events[-1].message_id, "todo:103")
         self.assertEqual(self.row(103)[0], 1)
-        self.assertEqual(len(steered), 1)
 
     async def test_approval_matches_live_prompt_and_cannot_approve_another_request(self):
         from tools import approval
@@ -1344,7 +1340,9 @@ class GitLabFlow(unittest.IsolatedAsyncioTestCase):
         self.todos.append(self.todo(102))
         await self.adapter._poll_once()
         self.assertEqual(handled, ["todo:101"])
-        self.assertEqual(self.row(102), (0, 0, None))
+        # The second mention is handed to the gateway's busy path and waits there as its own turn.
+        self.assertEqual(self.row(102), (0, 1, None))
+        self.assertEqual([event.message_id for event in self.adapter._pending_messages.values()], ["todo:102"])
         release.set()
         await self.finish_native()
         self.assertEqual(self.todos[1]["state"], "done")
