@@ -426,7 +426,8 @@ thread as a turn of the thread's own session. An authorized assignment returns t
 implementation with the GitLab worker, avoiding
 duplicate work from Desktop/TUI/CLI.
 
-A Mattermost mention about previous work can continue the owning GitLab issue session.
+A Mattermost instruction to resume or change previous work can continue the owning
+GitLab issue session.
 Resolve the issue from an explicit link or verified MR relation; for older unlinked
 threads, search the mapped project and confirm uncertain matches. After reading the
 relevant planning, refinement and follow-up context, the Mattermost session runs
@@ -439,9 +440,15 @@ the same mention queue one request. Mattermost activity without a mention does n
 wake GitLab work; failed Mattermost report delivery retries without rerunning work.
 An optional `--request '<text>'` adds an instruction to the forwarded mention.
 
-### Reading an issue session's status
+### Reading an issue session without a new turn
 
-A status question about an assigned issue does not need a turn in the issue session.
+Read-only requests about an issue, including an assigned issue, are answered in the
+origin Mattermost thread from existing history. This includes status/progress,
+explanations of decisions or implementation results, investigation without fixes,
+and read-only reviews. These requests do not send a prompt or start a turn in the
+GitLab session. Use `continue` only for instructions the issue session needs to act
+on: new or resumed work, scope changes, or answers/information needed to resolve its
+questions or blockers.
 `hermes -p default gitlab status --issue '<project-id>:issues:<iid>' [--limit N]` prints
 the latest user and assistant entries of that issue's session, its title, state and last
 activity. The issue's session key is fixed by its identity; the gateway routing index
@@ -450,6 +457,12 @@ and the newest transcript under the key is used once that routing row is pruned.
 calling session's `HERMES_SESSION_PROFILE` must own the repository route. Raw tool output
 is left out; tool-only turns show the tool names. The output includes an
 `@session:<profile>/<id>` link that `session_search` reads in full.
+If history is missing, incomplete, or needs a fresh fact, read the relevant GitLab
+context or code directly without changes, and state any remaining evidence limits.
+Missing history alone does not require a continuation or assignment. For a mixed
+request, answer the read-only part and use `continue --request '<instruction>'` to
+clarify the work to perform and which read-only questions were already answered;
+the CLI still forwards the original mention alongside it.
 
 ### Reports continue the origin thread session
 
