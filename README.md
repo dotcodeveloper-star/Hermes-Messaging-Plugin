@@ -497,15 +497,23 @@ architecture decisions with findings and a recommendation. It validates, reviews
 pushes and reuses the issue/MR; opening an MR is not task completion. Done follows
 team acceptance criteria; merge and deployment still require authorization.
 
-UI changes require passing, rerunnable automated E2E tests and screenshots from the
-running app at the tested revision. Reuse existing scenarios when coverage is
-adequate; add or update tests only for gaps, and run them in either case.
-The MR records scenarios, commands/results,
-revision and relevant states/viewports, with screenshots uploaded to GitLab or
-linked through reviewer-accessible artifacts. Build/unit tests and local screenshot
-paths alone are insufficient. Failed checks or missing/stale/inaccessible evidence
-mean incomplete verification: keep new MRs draft and do not advance to review.
-Backend-only work uses relevant API/data/security checks without a screenshot gate.
+Verification follows the risk-based [CoDev classification](templates/global-project/skills/codev-workflow/tools/working.md#kelas-verifikasi).
+Static/visual changes use relevant static checks and rendered visual evidence;
+isolated behavior uses focused unit/component/integration tests and a UI smoke check
+when applicable. Automated E2E is required for cross-system or critical flows,
+including backend-only authorization or data-integrity changes. Run affected
+scenarios; a full suite is reserved for broad shared changes or explicit gates.
+Existing repository gates and acceptance criteria remain mandatory.
+Required E2E adds coverage only for gaps in the changed behavior. Start at the
+affected step using fixtures or a saved session; complete journeys across modules
+are needed only when those module relationships are affected or explicitly required.
+Running an existing full suite does not require adding full journeys.
+
+The MR records the class/reason, scenarios, commands/results, revision and coverage
+gaps, plus reviewer-accessible screenshots for UI changes. E2E setup and environment
+diagnosis have a 10-minute local budget per task; required checks remain incomplete
+if that budget is exhausted. Failed or missing mandatory evidence keeps the MR
+draft; optional E2E does not block review.
 
 On a fresh supported mention/assignment, Codev handles reviewer/QA findings on the
 same MR, checks current CI and refreshes affected evidence. This guidance adds no

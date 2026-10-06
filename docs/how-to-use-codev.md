@@ -110,16 +110,25 @@ ke PIC dengan temuan, rekomendasi, keputusan yang dibutuhkan, dan langkah lanjut
 PIC dipilih dari peta tanggung jawab PM/BE/FE/QA. Handoff ke QA menyertakan langkah
 uji dan hasil yang diharapkan setelah Codev menguji pekerjaannya sendiri.
 
-### Bukti wajib untuk perubahan UI
+### Verifikasi sesuai risiko
 
-- E2E otomatis yang bisa dijalankan ulang, menguji alur pengguna dan skenario gagal yang relevan, dengan hasil lulus.
-- Screenshot aplikasi yang benar-benar berjalan pada revisi yang diuji, mencakup state dan viewport relevan; perubahan responsif mencakup ukuran layar terdampak.
-- MR memuat skenario, perintah/hasil E2E, revisi, dan screenshot melalui upload GitLab atau artifact yang dapat diakses reviewer. Path lokal saja tidak cukup.
+CoDev memilih [kelas verifikasi](../templates/global-project/skills/codev-workflow/tools/working.md#kelas-verifikasi)
+dari dampak perubahan. Perubahan visual memakai cek statis dan bukti render;
+perilaku terisolasi memakai unit/component/integration test terfokus dan smoke UI
+bila relevan. E2E otomatis wajib untuk alur lintas sistem atau kritis, termasuk
+perubahan backend pada otorisasi atau integritas data. Skenario terdampak cukup;
+suite penuh mengikuti dampak luas atau gate eksplisit repo. AC dan gate repo tetap wajib.
+E2E wajib hanya menambah coverage untuk gap perilaku yang berubah. Mulai langsung
+di langkah terdampak lewat fixture/session tersimpan; journey lengkap lintas modul
+hanya diperlukan jika hubungan antarmodul ikut berubah atau diwajibkan eksplisit.
+Menjalankan suite penuh yang sudah ada tidak berarti menambah journey lengkap.
 
-Build atau unit test saja belum memenuhi bukti UI. Jika E2E gagal, environment
-terblokir, atau screenshot belum tersedia/terbaru/dapat diakses, verifikasi belum
-lengkap. MR baru tetap draft dan issue belum dipindah ke review. Backend tanpa
-dampak UI memakai pemeriksaan API, otorisasi, dan data yang relevan tanpa wajib screenshot.
+MR mencatat kelas/alasan, skenario, perintah/hasil, revisi, dan coverage gap.
+Perubahan UI menyertakan screenshot render pada revisi yang diuji melalui upload
+GitLab atau artifact yang dapat diakses reviewer; path lokal saja tidak cukup.
+Setup dan diagnosis lingkungan E2E lokal dibatasi 10 menit per task. Jika bukti
+wajib belum lengkap, MR tetap Draft dan issue belum dipindah ke review; E2E opsional
+yang tidak tersedia tidak menahan review bila bukti minimum kelasnya sudah lulus.
 
 ### Setelah MR dibuka
 
