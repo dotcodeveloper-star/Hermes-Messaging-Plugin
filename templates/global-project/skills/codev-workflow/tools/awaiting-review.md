@@ -11,10 +11,10 @@ Masuk saat MR dibuat (dari Working) atau setelah push perbaikan (dari Addressing
 
 - Geser card ke list Review sesuai peta `## Board` repo (`tools/board.md` langkah 2); peta `-` → tidak digeser.
 - Set reviewer MR ke PIC lewat GitLab API kalau PIC teridentifikasi.
-- Mention PIC di **balasan final sesi ini** (issue atau MR, tempat sesi di-route), bukan lewat komentar tambahan. Isi: link MR, satu kalimat apa yang berubah, cara verifikasi singkat, coverage gap kalau ada.
+- Mention PIC di **balasan final sesi ini** (issue atau MR, tempat sesi di-route), bukan lewat komentar tambahan. Ikuti format laporan ke user di `SKILL.md`: nomor/link MR, pekerjaan yang terkait, dan hasil pemeriksaan serta review secara singkat. Detail cara pemeriksaan dan proses reviewer cukup di deskripsi MR. Nyatakan "sudah direview" hanya jika review selesai; MR Draft disebut "masih perlu pemeriksaan" dengan alasan yang memengaruhi kesiapan hasil. MR baru dilaporkan "sudah dibuat"; MR yang sudah ada dilaporkan "sudah diperbarui".
 
 ```
-@pic-be MR !57 siap review untuk #142: expiry token pakai `<=`, test regresi ditambah. Verifikasi: login, tunggu token expired, refresh. Sonar hijau.
+@pic-be MR !<nomor> untuk <pekerjaan/issue> sudah dibuat: <link MR>. <Ringkasan hasil pemeriksaan dan review yang terverifikasi>. Mohon review.
 ```
 
 PIC tidak teridentifikasi → balasan final tetap berisi hal yang sama tanpa mention, ditutup dengan pertanyaan siapa yang me-review.
@@ -27,11 +27,11 @@ Berlaku kalau permalink thread asal tercatat di issue (dari Planning) atau `orig
 - Kalau sesi ini sendiri di-route ke thread itu, jangan `post`; isi ini adalah balasan final. Kalau sesi ini di GitLab (kasus normal), kirim **satu** post ke thread itu lewat `mattermost-access post`, mention username Mattermost PIC kalau ada:
 
 ```
-MR !57 untuk #142 siap review: <link MR>. Review diminta ke @pic-be.
+MR !<nomor> untuk <pekerjaan/issue> sudah dibuat: <link MR>. <Ringkasan hasil pemeriksaan dan review yang terverifikasi>. @pic mohon review.
 ```
 
 ```
-MR !57 untuk #142 siap review: <link MR>. Reviewer belum teridentifikasi, siapa yang bisa review?
+MR !<nomor> untuk <pekerjaan/issue> sudah dibuat: <link MR>. <Ringkasan hasil pemeriksaan dan review yang terverifikasi>. Siapa yang bisa review?
 ```
 
 - Satu post per kali masuk AwaitingReview yang memang butuh review ulang. Push kecil yang hanya menjawab komentar tanpa perubahan substantif tidak dikirim lagi. Setelah `post`, balasan final di GitLab hanya merujuk permalink-nya, tidak mengulang isinya.

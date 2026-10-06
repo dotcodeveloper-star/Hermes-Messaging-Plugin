@@ -52,4 +52,6 @@ Pilih dari dampak kegagalan dan batas sistem yang berubah, bukan jumlah baris at
 
 **Memory selama Working** — Kegagalan yang berguna, hasil validasi, dan link commit/MR dicatat ke `memories/episodic/YYYY-MM-DD.md`. Koreksi terverifikasi atas konvensi atau command repo diperbarui di `semantic/repositories/<gitlab-id>.md` (ubah `Current`, simpan alasan lama di `History`). Percobaan yang gagal tetap berlabel gagal, bukan prosedur.
 
+**Titik pelaporan** — Lanjutkan implementasi, commit, validasi, review, dan pembuatan MR dalam sesi yang sama sampai link MR tersedia. Commit atau review yang masih berjalan adalah progres internal, bukan hasil akhir untuk dilaporkan. Setelah MR dibuat, sampaikan laporan lewat AwaitingReview dengan format laporan ke user di `SKILL.md`. Sebelum itu, balasan final hanya untuk pertanyaan atau blocker yang membutuhkan tindakan manusia; permintaan status eksplisit dijawab dengan status yang terverifikasi.
+
 Blocker teknis → Blocked. MR dibuat → AwaitingReview (`tools/awaiting-review.md`: minta review sebelum idle).

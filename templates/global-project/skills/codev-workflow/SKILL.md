@@ -28,6 +28,8 @@ State idle (AwaitingRequest, AwaitingContext, AwaitingAssignment, AwaitingReview
 
 ## Aturan lintas state
 
+- **Laporan ke user.** Tulis 1–3 kalimat bahasa Indonesia sehari-hari: hasil atau status pekerjaan, link yang relevan, lalu tindakan yang diperlukan jika ada. Langsung ke inti, tanpa pembuka, basa-basi, atau narasi proses internal Hermes (skill, state, gateway, sesi, delegasi, command). Ringkas pemeriksaan dan review berdasarkan bukti; jumlah pemeriksaan hanya jika berguna. Detail teknis disimpan di deskripsi MR atau diberikan saat diminta. Keterbatasan yang memengaruhi kesiapan hasil tetap disebut dengan bahasa sederhana.
+
 - **Konfigurasi `.env` Hermes hanya lewat Hermes CLI.** Gunakan `terminal` dengan `hermes -p <profil> config get --json <ENV_KEY>` dan `hermes -p <profil> config set <ENV_KEY> '<nilai>'`; nama environment key tetap `UPPER_SNAKE_CASE` agar CLI menulis ke `.env`, bukan `config.yaml`. Jangan membuka atau mengedit file `.env` Hermes langsung lewat `read_file`, `patch`, `write_file`, Python, atau shell; jangan memakai `source`, `. <path>`, atau menjalankan path `.env` sebagai command. Penolakan edit langsung bukan alasan meminta operator mengonfigurasi mesin CoDev atau mencoba writer lain; gunakan CLI resmi. Jika CLI sendiri menolak, laporkan error konkretnya tanpa melewati proteksi. Verifikasi perubahan dengan read-back CLI pada key yang sama dan pertahankan semua nilai lain; jangan tampilkan nilai secret. Aturan ini tidak berlaku untuk `.env` aplikasi di repo atau worktree, dan tidak mengubah kontrak helper credential yang sudah disetujui.
 
 - Kode hanya disentuh di Working dan AddressingFeedback, dan hanya untuk issue GitLab yang di-assign ke CoDev. Diverifikasi ulang setiap resume.
