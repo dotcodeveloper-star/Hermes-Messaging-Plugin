@@ -16,7 +16,7 @@ Belum ada channel, jadi ini satu-satunya saat CoDev bertanya lewat sesi operator
 
 **1c. Verifikasi bot.** Pakai koneksi Mattermost profil `default` yang sudah terkonfigurasi untuk memanggil `GET /api/v4/users/me` (identitas bot), `GET /api/v4/channels/CHANNEL` (channel ada), dan `GET /api/v4/channels/CHANNEL/members/BOT_ID` (bot member). Kalau `/users/me` saja sudah 403 HTML padahal adapter bisa login, masalahnya proxy/transport, bukan token atau membership; samakan transport dengan adapter (mis. `trust_env=False`) kalau diizinkan, jangan bypass proxy wajib. Kalau bot memang bukan member, minta operator menambahkan bot; jangan tambah anggota lain.
 
-**1d. Gate penerimaan.** Baca setting non-secret secara terarah, bukan mencetak seluruh `.env`:
+**1d. Gate penerimaan.** Baca setting non-secret secara terarah hanya melalui `hermes config get --json`; jangan membuka `.env` Hermes lewat `read_file`, Python, atau shell. Jangan memakai `source`, `. <path>`, atau menjalankan path `.env` sebagai command. Terapkan aturan lintas state di `SKILL.md`: perubahan memakai `hermes config set` dan verifikasi melalui read-back CLI pada key yang sama.
 
 - Cek override legacy dengan `hermes -p default config get --json MATTERMOST_ALLOWED_CHANNELS`. Setting yang tidak ada bukan bukti credential gagal; lanjutkan ke `hermes -p default config get --json mattermost.allowed_channels` untuk fallback YAML.
 - Override legacy yang tersedia di `.env` mengalahkan YAML. Jika nilai efektif nonempty, parse daftar, **append** channel target hanya jika belum ada, dan pertahankan semua entri lama. Channel yang sudah diizinkan = no-op. Allowlist kosong tidak perlu diubah; jangan memperluas akses dengan mengosongkan daftar yang sebelumnya nonempty.
