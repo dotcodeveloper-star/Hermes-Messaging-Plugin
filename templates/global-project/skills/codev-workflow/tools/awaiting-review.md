@@ -11,7 +11,7 @@ Masuk saat MR dibuat (dari Working) atau setelah push perbaikan (dari Addressing
 
 - Geser card ke list Review sesuai peta `## Board` repo (`tools/board.md` langkah 2); peta `-` → tidak digeser.
 - Set reviewer MR ke PIC lewat GitLab API kalau PIC teridentifikasi.
-- Mention PIC di **balasan final sesi ini** (issue atau MR, tempat sesi di-route), bukan lewat komentar tambahan. Ikuti format laporan ke user di `SKILL.md`: nomor/link MR, pekerjaan yang terkait, dan hasil pemeriksaan serta review secara singkat. Detail cara pemeriksaan dan proses reviewer cukup di deskripsi MR. Nyatakan "sudah direview" hanya jika review selesai; MR Draft disebut "masih perlu pemeriksaan" dengan alasan yang memengaruhi kesiapan hasil. MR baru dilaporkan "sudah dibuat"; MR yang sudah ada dilaporkan "sudah diperbarui".
+- Mention PIC di **balasan final sesi ini** (issue atau MR, tempat sesi di-route), bukan lewat komentar tambahan. Ikuti format laporan ke user di `SKILL.md`: nomor/link MR, pekerjaan yang terkait, dan hasil pemeriksaan serta review secara singkat. Detail cara pemeriksaan dan proses reviewer cukup di deskripsi MR. Bedakan pemeriksaan AI dari approval manusia; sebut "pemeriksaan otomatis lulus" jika itu yang terbukti. MR Draft disebut "masih perlu pemeriksaan" dengan alasan yang memengaruhi kesiapan hasil. MR baru dilaporkan "sudah dibuat"; MR yang sudah ada dilaporkan "sudah diperbarui" hanya setelah ada perubahan, atau "siap review" saat melengkapi laporan yang terlewat.
 
 ```
 @pic-be MR !<nomor> untuk <pekerjaan/issue> sudah dibuat: <link MR>. <Ringkasan hasil pemeriksaan dan review yang terverifikasi>. Mohon review.
@@ -23,8 +23,13 @@ PIC tidak teridentifikasi → balasan final tetap berisi hal yang sama tanpa men
 
 Berlaku kalau permalink thread asal tercatat di issue (dari Planning) atau `origin_url` handoff terverifikasi, **terlepas dari PIC teridentifikasi atau tidak**.
 
-- Verifikasi dulu dengan `mattermost-access thread --post '<permalink>'`: thread ada, channel cocok dengan yang tercatat.
-- Kalau sesi ini sendiri di-route ke thread itu, jangan `post`; isi ini adalah balasan final. Kalau sesi ini di GitLab (kasus normal), kirim **satu** post ke thread itu lewat `mattermost-access post`, mention username Mattermost PIC kalau ada:
+- Verifikasi dulu dengan `mattermost-access thread --post '<permalink>'`: thread ada, channel cocok dengan yang tercatat, dan laporan untuk revisi MR ini belum disampaikan.
+- Pilih satu jalur pengiriman:
+  - Sesi ini di-route ke thread Mattermost asal → laporan lengkap menjadi balasan final.
+  - Sesi GitLab dengan `Mattermost origin:` di dispatch → laporan lengkap menjadi balasan final GitLab; gateway meneruskannya ke thread asal, termasuk fallback pengiriman. Jangan `mattermost-access post` dari sesi ini. Sesi Mattermost yang menerima relay wajib menyampaikan link dan kesiapan MR dalam balasan finalnya.
+  - Sesi GitLab tanpa relay tersebut, tetapi permalink thread asal tercatat dan terverifikasi → kirim satu laporan lewat `mattermost-access post`, mention username Mattermost PIC kalau ada. Verifikasi post berhasil sebelum menganggap notice selesai; balasan final GitLab tetap memuat link dan kesiapan MR serta permalink notice.
+
+Isi laporan:
 
 ```
 MR !<nomor> untuk <pekerjaan/issue> sudah dibuat: <link MR>. <Ringkasan hasil pemeriksaan dan review yang terverifikasi>. @pic mohon review.
@@ -34,10 +39,12 @@ MR !<nomor> untuk <pekerjaan/issue> sudah dibuat: <link MR>. <Ringkasan hasil pe
 MR !<nomor> untuk <pekerjaan/issue> sudah dibuat: <link MR>. <Ringkasan hasil pemeriksaan dan review yang terverifikasi>. Siapa yang bisa review?
 ```
 
-- Satu post per kali masuk AwaitingReview yang memang butuh review ulang. Push kecil yang hanya menjawab komentar tanpa perubahan substantif tidak dikirim lagi. Setelah `post`, balasan final di GitLab hanya merujuk permalink-nya, tidak mengulang isinya.
+- Satu notice per kali masuk AwaitingReview yang memang butuh review ulang, atau untuk melengkapi laporan MR siap yang terlewat. Push kecil yang hanya menjawab komentar tanpa perubahan substantif tidak dikirim lagi. PIC belum diketahui tidak menahan laporan.
 - Thread asal tidak tercatat atau gagal diverifikasi → tidak ada pesan Mattermost. Channel, thread, atau DM lain tetap butuh izin eksplisit.
 
 ## 4. Lalu idle
+
+- Akhiri giliran dengan laporan MR lengkap melalui jalur di atas; janji "link akan dikirim" belum memenuhi langkah ini. Pembuatan MR saja belum cukup untuk masuk idle. Kegagalan post langsung tetap dicatat sebagai kegagalan pengiriman, bukan notice yang sudah sampai.
 
 - Permintaan operasi non-coding (misalnya undraft atau merge) ditangani langsung oleh sesi yang menerima request sesuai `tools/understanding.md`, dengan izin dan checks GitLab yang berlaku. Undraft tetap AwaitingReview; approved atau merged → Completed. Perubahan kode atau resolusi konflik → AddressingFeedback di sesi issue.
 

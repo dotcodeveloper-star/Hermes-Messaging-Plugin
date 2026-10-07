@@ -33,7 +33,8 @@ Geser card ke list Testing sesuai peta `## Board` repo (`tools/board.md`; peta `
 Catat handoff QA di issue GitLab. Untuk Mattermost, tentukan dulu **di mana sesi ini di-route**, karena itu menentukan mekanismenya:
 
 - **Sesi ini adalah thread Mattermost asal** → ringkasan non-teknis (apa yang sekarang bisa dilakukan, environment, siap QA) adalah **balasan final sesi**, dikirim gateway. Jangan `mattermost-access post`; hasilnya dobel.
-- **Sesi ini adalah GitLab issue** dan request awal datang dari thread Mattermost yang permalink-nya tercatat di issue dan terverifikasi → SOUL mengizinkan satu ringkasan ke thread itu lewat `mattermost-access post`, karena balasan final sesi ini pergi ke GitLab, bukan ke thread itu. Setelah post, balasan final di GitLab hanya merujuk permalink-nya, tidak mengulang isinya.
+- **Sesi ini adalah GitLab issue dengan `Mattermost origin:` di dispatch** → ringkasan lengkap menjadi balasan final; gateway meneruskannya ke thread asal. Jangan `mattermost-access post` dari sesi ini.
+- **Sesi ini adalah GitLab issue tanpa relay tersebut**, tetapi permalink thread asal tercatat di issue dan terverifikasi → SOUL mengizinkan satu ringkasan ke thread itu lewat `mattermost-access post`. Verifikasi post berhasil; balasan final di GitLab merujuk permalink-nya.
 - Asal tidak terbukti, atau ringkasan sudah pernah sampai di thread itu → tidak ada pesan Mattermost.
 
 Thread, channel, dan DM lain tetap memerlukan izin eksplisit.
