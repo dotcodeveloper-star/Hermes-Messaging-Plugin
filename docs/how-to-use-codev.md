@@ -110,6 +110,16 @@ ke PIC dengan temuan, rekomendasi, keputusan yang dibutuhkan, dan langkah lanjut
 PIC dipilih dari peta tanggung jawab PM/BE/FE/QA. Handoff ke QA menyertakan langkah
 uji dan hasil yang diharapkan setelah Codev menguji pekerjaannya sendiri.
 
+Issue dan MR memuat section **Test Suggestion** untuk QA. Tepat di bawah judul,
+sebelum checklist, cantumkan `Halaman: [Nama halaman](URL halaman yang diuji)`
+dengan URL environment pengujian yang terverifikasi. Jika belum tersedia atau
+task tidak memiliki halaman, nyatakan kondisinya. Di MR, cukup maksimal
+3–5 checklist pendek berisi aksi uji → expected result, lalu tautan ke detail
+di issue. Prasyarat/role, data uji, langkah lengkap, dan skenario tambahan
+ditaruh di issue. Cakupan mengikuti AC dan risiko perubahan. Checklist kosong
+berarti belum diuji, terpisah dari bukti verifikasi Codev. Section diperbarui
+saat implementasi atau feedback mengubah perilaku, dan dirujuk saat handoff QA.
+
 ### Verifikasi sesuai risiko
 
 CoDev memilih [kelas verifikasi](../templates/global-project/skills/codev-workflow/tools/working.md#kelas-verifikasi)

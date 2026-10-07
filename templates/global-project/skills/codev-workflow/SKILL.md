@@ -50,6 +50,36 @@ Sebelum membuat issue/card GitLab atau MR, serta saat memperbarui deskripsinya, 
 4. Jika pemeriksaan berhasil dan repo memang tidak menyediakan template yang sesuai maupun default, gunakan isi wajib workflow dan sebutkan bahwa template tidak tersedia. Gagal akses, autentikasi, atau pembacaan belum selesai bukan bukti ketiadaan template: selesaikan akses atau laporkan blocker konkret sebelum membuat card/MR.
 5. Sebelum mengirim, cocokkan deskripsi akhir dengan template yang dibaca: semua section dan checklist tetap ada, placeholder sudah ditangani, serta konteks wajib workflow lengkap. Format generik dari skill lain mengikuti template repo ini.
 
+## Test Suggestion
+
+Setiap deskripsi issue dan MR wajib memuat section **Test Suggestion** untuk panduan QA. Jika template repo sudah memiliki section pengujian, tempatkan sebagai subheading di sana; jika belum, tambahkan section tanpa mengubah heading atau checklist template. Pada issue, turunkan skenario dari AC yang disepakati; pada MR, sesuaikan dengan implementasi dan risiko perubahan terbaru.
+
+- **Link halaman:** tepat di bawah judul Test Suggestion, sebelum saran pengujian, tulis `Halaman: [<nama halaman>](<URL halaman yang diuji>)`. Gunakan URL environment pengujian yang terverifikasi; beberapa halaman ditautkan dengan nama masing-masing. Jika URL belum tersedia, tulis `Halaman: belum tersedia`; untuk task tanpa halaman, tulis `Halaman: tidak berlaku — <alasan>`. Jangan mengarang URL.
+- **MR ringkas:** gunakan maksimal 3–5 checklist satu baris, lebih sedikit bila cukup. Tiap poin berisi aksi uji → expected result. Prioritaskan alur utama, kasus gagal/batas, dan regresi terpenting yang terdampak. Prasyarat khusus cukup satu baris bila diperlukan; tautkan ke section Test Suggestion di issue untuk detail atau skenario tambahan, tanpa menyalin tabel ke MR.
+- **Detail di issue:** tiap skenario memuat AC/risiko yang diuji, langkah konkret, dan expected result yang bisa diamati QA. Sebutkan prasyarat: environment/URL bila tersedia, role akun, data uji, dan setup yang diperlukan. Informasi yang belum tersedia ditandai belum tersedia; gunakan data uji tanpa secret. Cakupan mengikuti AC dan risiko perubahan, bukan daftar generik di luar scope.
+- Pisahkan saran pengujian dari hasil verifikasi CoDev. Skenario yang belum dijalankan ditandai **Belum diuji**; hasil lulus hanya dicatat dengan bukti dan revisi/environment yang diuji. Saran QA tidak menggantikan pemeriksaan wajib sebelum MR siap review.
+- Saat implementasi atau feedback mengubah perilaku, perbarui skenario terdampak pada issue dan MR sambil mempertahankan hasil/catatan QA beserta revisinya. Handoff QA merujuk section terbaru. Untuk perubahan tanpa skenario QA yang relevan, tulis alasan konkretnya.
+
+Format ringkas di MR (checklist kosong = belum diuji):
+
+```markdown
+### Test Suggestion
+
+Halaman: [<nama halaman>](<URL halaman yang diuji>)
+
+- [ ] <aksi pada alur utama> → <expected result>.
+- [ ] <aksi pada kasus gagal/batas> → <expected result>.
+- [ ] <cek regresi terdampak> → <expected result>.
+
+Detail: [Skenario lengkap](<URL section Test Suggestion di issue>).
+```
+
+Format detail per skenario di issue, bila diperlukan:
+
+| Skenario / AC atau risiko | Prasyarat / data uji | Langkah uji | Expected result |
+|---|---|---|---|
+| <perilaku yang diuji> | <role dan kondisi awal> | <langkah berurutan> | <hasil yang dapat diamati> |
+
 ## Skill superpowers
 
 `superpowers/` di direktori skill bersama adalah salinan utuh skills obra/superpowers 6.4.1. Muat dengan `skill_view("superpowers/<nama>")`; referensi `superpowers:<nama>` di dalam skill-skill itu resolve ke path yang sama. Jangan panggil nama telanjangnya: `test-driven-development`, `systematic-debugging`, dan `requesting-code-review` juga ada sebagai skill bawaan profil, dan nama ambigu ditolak `skill_view`.

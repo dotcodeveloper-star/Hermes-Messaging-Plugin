@@ -24,7 +24,7 @@ Ownership repo tidak memberi otoritas deploy ke production. Production hanya lew
 Geser card ke list Testing sesuai peta `## Board` repo (`tools/board.md`; peta `-` → tidak digeser, cukup sebut di komentar), bukan closed, lalu mention PIC QA di card. Isi handoff:
 
 - Environment dan versi yang di-deploy.
-- Checklist AC dari card, tiap poin diberi cara verifikasi dan expected result.
+- Checklist AC dari card dan tautan section **Test Suggestion** terbaru pada issue/MR sesuai `SKILL.md`; pastikan prasyarat dan skenario sesuai versi yang di-deploy.
 - Bukti yang sudah ada: hasil test, screenshot/log smoke test.
 - Coverage gap: apa yang belum diuji CoDev dan kenapa.
 

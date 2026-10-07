@@ -15,7 +15,7 @@ Planning mengubah request menjadi plan di card GitLab. Dua skill berurutan: `sup
    - **Spec** (architectural) utuh, section terpisah.
    - **Plan** hasil writing-plans, utuh di deskripsi card.
    - **Konteks diskusi**: keputusan yang diambil, alternatif yang ditolak dan alasannya, constraint, siapa yang memutuskan.
-   - **Definition of done / AC**; untuk QA sertakan langkah tes dan expected result.
+   - **Definition of done / AC** dan section **Test Suggestion** sesuai `SKILL.md` untuk panduan QA.
    - **Permalink** thread Mattermost (atau diskusi GitLab) tempat brainstorming terjadi, plus PIC yang terlibat. Pakai `permalink` dari `mattermost-access thread`/`post`, jangan tulis hostname sendiri. Permalink ini yang dibaca gateway saat issue di-assign: sesi Working menerimanya sebagai `Mattermost origin`, dan balasan finalnya (pertanyaan, blocker, hasil) diteruskan ke thread itu. Tanpa permalink, sesi Working tidak tahu asal request.
    Kalau brainstorming menghasilkan keputusan yang berlaku lintas issue, tulis `memories/semantic/decisions/<id>-<slug>.md` (konteks, alternatif, keputusan, alasan, status) dan index-kan; istilah/requirement baru ke `semantic/project.md`.
 4. **Konfirmasi lanjut.** Setelah card ada, balasan final berisi link card dan satu pertanyaan ya/tidak: lanjut implementasi sekarang? Tidak menyuruh tim meng-assign. Lalu → AwaitingAssignment.
