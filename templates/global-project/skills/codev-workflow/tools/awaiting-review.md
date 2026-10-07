@@ -39,5 +39,7 @@ MR !<nomor> untuk <pekerjaan/issue> sudah dibuat: <link MR>. <Ringkasan hasil pe
 
 ## 4. Lalu idle
 
+- Permintaan operasi non-coding (misalnya undraft atau merge) ditangani langsung oleh sesi yang menerima request sesuai `tools/understanding.md`, dengan izin dan checks GitLab yang berlaku. Undraft tetap AwaitingReview; approved atau merged → Completed. Perubahan kode atau resolusi konflik → AddressingFeedback di sesi issue.
+
 - Diam sampai trigger gateway: feedback atau konflik → AddressingFeedback; approved atau merged → Completed. Satu reminder ke reviewer boleh kalau MR lewat batas waktu yang disepakati tim, di surface GitLab, sekali.
 - Memory: MR, reviewer yang diminta, dan permalink notice ke `memories/episodic/YYYY-MM-DD.md`. Reviewer yang terbukti aktif untuk repo itu dicatat di `semantic/repositories/<gitlab-id>.md`.

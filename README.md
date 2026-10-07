@@ -426,7 +426,7 @@ thread as a turn of the thread's own session. An authorized assignment returns t
 implementation with the GitLab worker, avoiding
 duplicate work from Desktop/TUI/CLI.
 
-A Mattermost instruction to resume or change previous work can continue the owning
+A Mattermost instruction to resume or change coding work can continue the owning
 GitLab issue session.
 Resolve the issue from an explicit link or verified MR relation; for older unlinked
 threads, search the mapped project and confirm uncertain matches. After reading the
@@ -446,9 +446,12 @@ Read-only requests about an issue, including an assigned issue, are answered in 
 origin Mattermost thread from existing history. This includes status/progress,
 explanations of decisions or implementation results, investigation without fixes,
 and read-only reviews. These requests do not send a prompt or start a turn in the
-GitLab session. Use `continue` only for instructions the issue session needs to act
-on: new or resumed work, scope changes, or answers/information needed to resolve its
-questions or blockers.
+GitLab session. Non-coding operations run directly in the originating session through
+available APIs/tools: undraft or merge an MR, update metadata, run authorized pipelines
+or deployments, and capture screenshots of an available application. Verify current
+state, authorization, and required GitLab checks before acting, then verify the result.
+Use `continue` only for coding tasks: implementation or fixes, tests, conflict
+resolution, implementation scope changes, or answers/information needed to resume coding.
 `hermes -p default gitlab status --issue '<project-id>:issues:<iid>' [--limit N]` prints
 the latest user and assistant entries of that issue's session, its title, state and last
 activity. The issue's session key is fixed by its identity; the gateway routing index
@@ -460,8 +463,9 @@ is left out; tool-only turns show the tool names. The output includes an
 If history is missing, incomplete, or needs a fresh fact, read the relevant GitLab
 context or code directly without changes, and state any remaining evidence limits.
 Missing history alone does not require a continuation or assignment. For a mixed
-request, answer the read-only part and use `continue --request '<instruction>'` to
-clarify the work to perform and which read-only questions were already answered;
+request, handle read-only and available non-coding operations in the originating
+session, then use `continue --request '<instruction>'` only for the coding part. State
+which operations were already handled so the issue session does not repeat them;
 the CLI still forwards the original mention alongside it.
 
 ### Reports continue the origin thread session
@@ -472,12 +476,13 @@ plugin. It is delivered as a turn of the Mattermost thread session that requeste
 work, through Hermes's plugin message injection. That session sees the result, question
 or blocker inside its own context, relays the substance in its own final reply to the
 thread, and continues work that was waiting for it: for example a second card that was
-blocked on the first one. The relay text tells it to self-assign a waiting card, or to run
+blocked on the first one. The relay text tells it to handle non-coding operations
+directly and, for coding, self-assign an authorized waiting card or run
 `hermes -p default gitlab continue --issue '<project-id>:issues:<iid>' --request '<text>'`
 for an issue session that is already assigned. A relayed turn has no mentioning post, so
 `continue` verifies it against the recorded relay instead, requires `--request`, and
 queues one continuation per relayed report and issue. Answers to a relayed question or
-blocker go through the same command.
+blocker needed to resume coding go through the same command.
 
 The session key comes from `HERMES_SESSION_KEY` when `continue` queued the handoff, and is
 derived from the verified origin thread (channel type, channel, root post, profile) for
