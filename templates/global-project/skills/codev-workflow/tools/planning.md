@@ -10,7 +10,7 @@ Planning mengubah request menjadi plan di card GitLab. Dua skill berurutan: `sup
    - Bounded juga mendapat plan tertulis, karena sesi Working tidak melihat percakapan ini. Plan bounded pendek, satu atau dua task.
    - Execution method selalu Native (`superpowers/executing-plans` di Working). Tidak ditanyakan.
    - Execution handoff diganti langkah 3: plan tidak disimpan ke file, tapi ke card.
-3. **Buat atau perbarui issue GitLab.** Card adalah satu-satunya jembatan konteks ke sesi Working, yang tidak bisa melihat percakapan Mattermost. Isi wajib:
+3. **Buat atau perbarui issue GitLab.** Terapkan aturan **Template issue dan MR** di `SKILL.md` sebelum menyusun deskripsi; tempatkan isi wajib berikut ke struktur template issue repo tujuan. Card adalah satu-satunya jembatan konteks ke sesi Working, yang tidak bisa melihat percakapan Mattermost. Isi wajib:
    - **Tujuan** dan **pendekatan** yang disepakati.
    - **Spec** (architectural) utuh, section terpisah.
    - **Plan** hasil writing-plans, utuh di deskripsi card.

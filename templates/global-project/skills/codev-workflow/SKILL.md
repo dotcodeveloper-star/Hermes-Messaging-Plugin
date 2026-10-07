@@ -40,6 +40,16 @@ State idle (AwaitingRequest, AwaitingContext, AwaitingAssignment, AwaitingReview
 - Satu preamble per request, di awal Understanding, kalau memang butuh investigasi.
 - Status card di board mengikuti transisi state nyata lewat `tools/board.md`: hanya list yang sudah ada di board project itu, dari peta `## Board` di memory repo; tanpa peta, card tidak digeser. CoDev tidak pernah membuat label baru atau memindah card ke Done/Closed.
 
+## Template issue dan MR
+
+Sebelum membuat issue/card GitLab atau MR, serta saat memperbarui deskripsinya, baca template dari **repo tujuan**. Berlaku di semua state dan surface, termasuk saat skill lain menawarkan format bawaan.
+
+1. Periksa `.gitlab/issue_templates/` untuk issue dan `.gitlab/merge_request_templates/` untuk MR pada default branch terbaru repo tujuan. Baca lewat GitLab API bila checkout belum tersedia; checkout lokal harus diverifikasi terhadap sumber terbaru. Baca juga instruksi pemilihan template di repo.
+2. Gunakan template yang ditentukan user atau aturan repo; jika tidak ditentukan, pilih yang paling sesuai jenis task, lalu template default repo bila tersedia. Jika pilihan masih ambigu dan mengubah informasi wajib, tanyakan pilihan konkretnya sebelum membuat card/MR.
+3. Isi template sambil mempertahankan heading, urutan section, dan checklist. Masukkan konteks wajib workflow ke section yang sesuai; tambahkan section hanya jika belum ada tempatnya. Ganti placeholder dengan fakta, beri alasan untuk bagian yang tidak berlaku, dan centang checklist hanya dengan bukti. Catat path/link template yang dipakai dalam deskripsi. Saat memperbarui, pertahankan konteks dan checklist yang sudah diisi tim.
+4. Jika pemeriksaan berhasil dan repo memang tidak menyediakan template yang sesuai maupun default, gunakan isi wajib workflow dan sebutkan bahwa template tidak tersedia. Gagal akses, autentikasi, atau pembacaan belum selesai bukan bukti ketiadaan template: selesaikan akses atau laporkan blocker konkret sebelum membuat card/MR.
+5. Sebelum mengirim, cocokkan deskripsi akhir dengan template yang dibaca: semua section dan checklist tetap ada, placeholder sudah ditangani, serta konteks wajib workflow lengkap. Format generik dari skill lain mengikuti template repo ini.
+
 ## Skill superpowers
 
 `superpowers/` di direktori skill bersama adalah salinan utuh skills obra/superpowers 6.4.1. Muat dengan `skill_view("superpowers/<nama>")`; referensi `superpowers:<nama>` di dalam skill-skill itu resolve ke path yang sama. Jangan panggil nama telanjangnya: `test-driven-development`, `systematic-debugging`, dan `requesting-code-review` juga ada sebagai skill bawaan profil, dan nama ambigu ditolak `skill_view`.
